@@ -9,6 +9,7 @@ import (
 
 func TestLoad(t *testing.T) {
 	t.Run("valid package loads into SSA", func(t *testing.T) {
+		t.Parallel()
 		prog, pkgs, err := Load("github.com/ahmedaabouzied/goprove/pkg/testdata")
 		require.NoError(t, err)
 		require.NotNil(t, prog)
@@ -20,6 +21,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("all expected functions exist with built bodies", func(t *testing.T) {
+		t.Parallel()
 		_, pkgs, err := Load("github.com/ahmedaabouzied/goprove/pkg/testdata")
 		require.NoError(t, err)
 
@@ -54,6 +56,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("simple function structure", func(t *testing.T) {
+		t.Parallel()
 		_, pkgs, err := Load("github.com/ahmedaabouzied/goprove/pkg/testdata")
 		require.NoError(t, err)
 
@@ -71,6 +74,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("branching function has multiple blocks", func(t *testing.T) {
+		t.Parallel()
 		_, pkgs, err := Load("github.com/ahmedaabouzied/goprove/pkg/testdata")
 		require.NoError(t, err)
 
@@ -87,6 +91,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("loop function has phi nodes", func(t *testing.T) {
+		t.Parallel()
 		_, pkgs, err := Load("github.com/ahmedaabouzied/goprove/pkg/testdata")
 		require.NoError(t, err)
 
@@ -109,6 +114,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("nested loops have multiple phi nodes", func(t *testing.T) {
+		t.Parallel()
 		_, pkgs, err := Load("github.com/ahmedaabouzied/goprove/pkg/testdata")
 		require.NoError(t, err)
 
@@ -128,6 +134,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("package with errors returns error", func(t *testing.T) {
+		t.Parallel()
 		_, _, err := Load("./testdata/broken")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "build errors")
@@ -139,6 +146,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("multiple patterns load multiple packages", func(t *testing.T) {
+		t.Parallel()
 		_, pkgs, err := Load(
 			"github.com/ahmedaabouzied/goprove/pkg/testdata",
 			"github.com/ahmedaabouzied/goprove/pkg/loader",
@@ -157,6 +165,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("empty pattern returns error", func(t *testing.T) {
+		t.Parallel()
 		_, pkgs, err := Load("")
 		// An empty pattern may load the current package or fail —
 		// either way it should not panic.
