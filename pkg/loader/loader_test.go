@@ -25,8 +25,11 @@ func TestWalkFunction(t *testing.T) {
 				continue
 			}
 			if fn.Name() == "DivInLoop" {
-				_, err := cfg.ReversePostOrder(fn)
+				blocks, err := cfg.ReversePostOrder(fn)
 				require.Nil(t, err, "ReversePostOrder error")
+				for _, block := range blocks {
+					t.Log(block)
+				}
 				return
 			}
 		}
