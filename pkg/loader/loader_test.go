@@ -3,9 +3,35 @@ package loader
 import (
 	"testing"
 
+	"github.com/ahmedaabouzied/goprove/pkg/cfg"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/go/ssa"
 )
+
+func TestWalkFunction(t *testing.T) {
+	prog, pkgs, err := Load("github.com/ahmedaabouzied/goprove/pkg/testdata")
+	require.NoError(t, err)
+	require.NotNil(t, prog)
+	require.Len(t, pkgs, 1)
+
+	pkg := pkgs[0]
+	require.NotNil(t, pkg)
+
+	// Walk functions
+	for _, pkg := range pkgs {
+		for _, member := range pkg.Members {
+			fn, ok := member.(*ssa.Function)
+			if !ok {
+				continue
+			}
+			if fn.Name() == "DivInLoop" {
+				_, err := cfg.ReversePostOrder(fn)
+				require.Nil(t, err, "ReversePostOrder error")
+				return
+			}
+		}
+	}
+}
 
 func TestLoad(t *testing.T) {
 	t.Run("valid package loads into SSA", func(t *testing.T) {
