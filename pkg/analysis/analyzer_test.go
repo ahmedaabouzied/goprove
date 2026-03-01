@@ -285,21 +285,130 @@ func TestAnalyze(t *testing.T) {
 			fnName:  "identity",
 			wantLen: 0,
 		},
-		"comparison operator hits default in refineFromCondition": {
-			// if x < 5 uses token.LSS which is not handled by
-			// refineFromCondition, so it falls through to default: return.
-			// y is still Top, so division warns.
+		// --- LSS (x < C) ---
+		"LSS true branch: x > 0 proves safe div": {
+			// if x > 0 → true branch: x in [1, MaxInt64] → no zero → safe
 			src: `
 				package example
 
-				func divWithLessThan(x, y int) int {
-					if x < 5 {
+				func lssTrue(x, y int) int {
+					if y > 0 {
 						return x / y
 					}
 					return 0
 				}
 			`,
-			fnName:   "divWithLessThan",
+			fnName:  "lssTrue",
+			wantLen: 0,
+		},
+		"LSS false branch: y < 1 false means y >= 1 proves safe": {
+			// if y < 1 → false branch: y in [1, MaxInt64] → no zero → safe
+			src: `
+				package example
+
+				func lssFalse(x, y int) int {
+					if y < 1 {
+						return 0
+					}
+					return x / y
+				}
+			`,
+			fnName:  "lssFalse",
+			wantLen: 0,
+		},
+		// --- LEQ (x <= C) ---
+		"LEQ true branch: y <= -1 proves safe div": {
+			// if y <= -1 → true branch: y in [MinInt64, -1] → no zero → safe
+			src: `
+				package example
+
+				func leqTrue(x, y int) int {
+					if y <= -1 {
+						return x / y
+					}
+					return 0
+				}
+			`,
+			fnName:  "leqTrue",
+			wantLen: 0,
+		},
+		"LEQ false branch: y <= 0 false means y >= 1 proves safe div": {
+			// if y <= 0 → false branch: y in [1, MaxInt64] → no zero → safe
+			src: `
+				package example
+
+				func leqFalse(x, y int) int {
+					if y <= 0 {
+						return 0
+					}
+					return x / y
+				}
+			`,
+			fnName:  "leqFalse",
+			wantLen: 0,
+		},
+		// --- GTR (x > C) ---
+		"GTR true branch: y > 0 proves safe div": {
+			// if y > 0 → true branch: y in [1, MaxInt64] → no zero → safe
+			src: `
+				package example
+
+				func gtrTrue(x, y int) int {
+					if y > 0 {
+						return x / y
+					}
+					return 0
+				}
+			`,
+			fnName:  "gtrTrue",
+			wantLen: 0,
+		},
+		"GTR false branch: y > 0 false means y <= 0 includes zero": {
+			// if y > 0 → false branch: y in [MinInt64, 0] → contains zero → warn
+			src: `
+				package example
+
+				func gtrFalse(x, y int) int {
+					if y > 0 {
+						return 0
+					}
+					return x / y
+				}
+			`,
+			fnName:   "gtrFalse",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		// --- GEQ (x >= C) ---
+		"GEQ true branch: y >= 1 proves safe div": {
+			// if y >= 1 → true branch: y in [1, MaxInt64] → no zero → safe
+			src: `
+				package example
+
+				func geqTrue(x, y int) int {
+					if y >= 1 {
+						return x / y
+					}
+					return 0
+				}
+			`,
+			fnName:  "geqTrue",
+			wantLen: 0,
+		},
+		"GEQ false branch: y >= 1 false means y <= 0 includes zero": {
+			// if y >= 1 → false branch: y in [MinInt64, 0] → contains zero → warn
+			src: `
+				package example
+
+				func geqFalse(x, y int) int {
+					if y >= 1 {
+						return 0
+					}
+					return x / y
+				}
+			`,
+			fnName:   "geqFalse",
 			wantLen:  1,
 			severity: analysis.Warning,
 			message:  "possible division by zero",
