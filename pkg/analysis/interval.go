@@ -1,10 +1,11 @@
 package analysis
 
 type Interval struct {
-	Lo       int64
-	Hi       int64
-	IsBottom bool // unreachable - no possible value
-	IsTop    bool // unknown -- any value possible
+	Lo          int64
+	Hi          int64
+	IsBottom    bool // unreachable - no possible value
+	IsTop       bool // unknown -- any value possible
+	excludeZero bool
 }
 
 // NewInterval returns the interval with the lo and hi bounds.
@@ -29,9 +30,14 @@ func Bottom() Interval {
 	return Interval{IsBottom: true}
 }
 
+func (i Interval) ExcludeZero() Interval {
+	i.excludeZero = true
+	return i
+}
+
 // ContainsZero is useful for checking for a division by zero is possible.
 func (i Interval) ContainsZero() bool {
-	if i.IsBottom {
+	if i.excludeZero || i.IsBottom {
 		return false
 	}
 
@@ -58,7 +64,10 @@ func (i Interval) Join(other Interval) Interval {
 	lo := least(i.Lo, other.Lo)
 	hi := greatest(i.Hi, other.Hi)
 
-	return NewInterval(lo, hi)
+	res := NewInterval(lo, hi)
+	res.excludeZero = i.excludeZero && other.excludeZero
+
+	return res
 }
 
 func (i Interval) Meet(other Interval) Interval {
@@ -77,7 +86,10 @@ func (i Interval) Meet(other Interval) Interval {
 	lo := greatest(i.Lo, other.Lo)
 	hi := least(i.Hi, other.Hi)
 
-	return NewInterval(lo, hi)
+	res := NewInterval(lo, hi)
+	res.excludeZero = i.excludeZero || other.excludeZero
+
+	return res
 }
 
 func (i Interval) Equals(other Interval) bool {

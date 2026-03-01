@@ -29,6 +29,20 @@ func TestAnalyze(t *testing.T) {
 			fnName:  "divByConstant",
 			wantLen: 0,
 		},
+		"safe div checking zero divisor": {
+			src: `
+				package example
+
+				func safeDiv(x, y int) int {
+					if y != 0 {
+						return x / y
+					}
+					return 0
+				}
+			`,
+			fnName:  "safeDiv",
+			wantLen: 0,
+		},
 		"div by zero literal is a bug": {
 			src: `
 				package example
@@ -225,6 +239,124 @@ func TestAnalyze(t *testing.T) {
 			severity: analysis.Bug,
 			message:  "division by zero",
 		},
+		"phi node merges intervals from branches": {
+			// The Phi node at the merge point joins [1,1] and [2,2] → [1,2].
+			// Dividing by [1,2] is safe (no zero).
+			src: `
+				package example
+
+				func phiDiv(x int, flag bool) int {
+					d := 1
+					if flag {
+						d = 2
+					}
+					return x / d
+				}
+			`,
+			fnName:  "phiDiv",
+			wantLen: 0,
+		},
+		"safe div with eq check": {
+			// Tests the cond.X is const path (constant on the left side).
+			src: `
+				package example
+
+				func safeDivEq(x, y int) int {
+					if 0 == y {
+						return 0
+					}
+					return x / y
+				}
+			`,
+			fnName:  "safeDivEq",
+			wantLen: 0,
+		},
+		"function with no branches or division": {
+			// Exercises the refineFromPredecessor path where predecessor
+			// doesn't end with If (just a plain Jump).
+			src: `
+				package example
+
+				func identity(x int) int {
+					y := x + 1
+					return y
+				}
+			`,
+			fnName:  "identity",
+			wantLen: 0,
+		},
+		"comparison operator hits default in refineFromCondition": {
+			// if x < 5 uses token.LSS which is not handled by
+			// refineFromCondition, so it falls through to default: return.
+			// y is still Top, so division warns.
+			src: `
+				package example
+
+				func divWithLessThan(x, y int) int {
+					if x < 5 {
+						return x / y
+					}
+					return 0
+				}
+			`,
+			fnName:   "divWithLessThan",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"float division hits non-int const path": {
+			// Float constants have constant.Float kind, not constant.Int.
+			// lookupInterval returns Top() for them and sets a.err.
+			// Since Top contains zero, division warns.
+			src: `
+				package example
+
+				func floatDiv(x float64) float64 {
+					return x / 2.0
+				}
+			`,
+			fnName:   "floatDiv",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"unhandled instruction type falls through to Top": {
+			// -x is a *ssa.UnOp, which transferInstruction doesn't handle.
+			// So when lookupInterval is called for -x as a divisor,
+			// it's not a const and not in the state map → returns Top().
+			// Top contains zero, so division warns.
+			src: `
+				package example
+
+				func negDiv(x int) int {
+					y := -x
+					return 10 / y
+				}
+			`,
+			fnName:   "negDiv",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"both sides are variables in condition": {
+			// if x > y — neither operand is a constant, so
+			// refineFromCondition returns early (line 85-88).
+			// y is still Top, so division warns.
+			src: `
+				package example
+
+				func divWithVarCondition(x, y int) int {
+					if x > y {
+						return x / y
+					}
+					return 0
+				}
+			`,
+			fnName:   "divWithVarCondition",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
 	}
 
 	for name, tt := range tests {
@@ -256,4 +388,17 @@ func TestAnalyze(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAnalyzeEmptyBlocks(t *testing.T) {
+	t.Parallel()
+
+	// A function with no blocks (e.g. external/assembly-backed functions)
+	// should return nil findings without panicking.
+	fn := &ssa.Function{} // Blocks is nil by default
+	require.Empty(t, fn.Blocks)
+
+	analyzer := &analysis.Analyzer{}
+	findings := analyzer.Analyze(fn)
+	require.Nil(t, findings)
 }

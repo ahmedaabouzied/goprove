@@ -265,6 +265,102 @@ func TestMul(t *testing.T) {
 	}
 }
 
+func TestExcludeZero_ContainsZero(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		interval Interval
+		want     bool
+	}{
+		{"top with excludeZero", Top().ExcludeZero(), false},
+		{"spans zero with excludeZero", NewInterval(-5, 5).ExcludeZero(), false},
+		{"exactly zero with excludeZero", NewInterval(0, 0).ExcludeZero(), false},
+		{"lo is zero with excludeZero", NewInterval(0, 10).ExcludeZero(), false},
+		{"hi is zero with excludeZero", NewInterval(-10, 0).ExcludeZero(), false},
+		{"positive with excludeZero", NewInterval(1, 10).ExcludeZero(), false},
+		{"negative with excludeZero", NewInterval(-10, -1).ExcludeZero(), false},
+		{"bottom with excludeZero", Bottom().ExcludeZero(), false},
+		// Without excludeZero for contrast
+		{"top without excludeZero", Top(), true},
+		{"spans zero without excludeZero", NewInterval(-5, 5), true},
+		{"exactly zero without excludeZero", NewInterval(0, 0), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, tt.interval.ContainsZero())
+		})
+	}
+}
+
+func TestExcludeZero_Join(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		a              Interval
+		b              Interval
+		wantContains   bool
+		wantExcludeSet bool
+	}{
+		// Both exclude zero → result excludes zero
+		{"both exclude", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3).ExcludeZero(), false, true},
+		// Only one excludes zero → result does NOT exclude zero
+		{"only lhs excludes", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3), true, false},
+		{"only rhs excludes", NewInterval(-5, 5), NewInterval(-3, 3).ExcludeZero(), true, false},
+		// Neither excludes zero → result does NOT exclude zero
+		{"neither excludes", NewInterval(-5, 5), NewInterval(-3, 3), true, false},
+		// Bottom identity preserves excludeZero
+		{"bottom join excluded", Bottom(), NewInterval(-5, 5).ExcludeZero(), false, true},
+		{"excluded join bottom", NewInterval(-5, 5).ExcludeZero(), Bottom(), false, true},
+		// Top absorbs (Top.Join returns Top, loses excludeZero)
+		{"top join excluded", Top(), NewInterval(-5, 5).ExcludeZero(), true, false},
+		{"excluded join top", NewInterval(-5, 5).ExcludeZero(), Top(), true, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Join(tt.b)
+			require.Equal(t, tt.wantContains, got.ContainsZero(), "ContainsZero mismatch")
+			require.Equal(t, tt.wantExcludeSet, got.excludeZero, "excludeZero flag mismatch")
+		})
+	}
+}
+
+func TestExcludeZero_Meet(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		a              Interval
+		b              Interval
+		wantContains   bool
+		wantExcludeSet bool
+	}{
+		// Either excludes zero → result excludes zero
+		{"both exclude", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3).ExcludeZero(), false, true},
+		{"only lhs excludes", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3), false, true},
+		{"only rhs excludes", NewInterval(-5, 5), NewInterval(-3, 3).ExcludeZero(), false, true},
+		// Neither excludes → result does NOT exclude zero
+		{"neither excludes", NewInterval(-5, 5), NewInterval(-3, 3), true, false},
+		// Top identity preserves excludeZero
+		{"top meet excluded", Top(), NewInterval(-5, 5).ExcludeZero(), false, true},
+		{"excluded meet top", NewInterval(-5, 5).ExcludeZero(), Top(), false, true},
+		// Bottom absorbs
+		{"bottom meet excluded", Bottom(), NewInterval(-5, 5).ExcludeZero(), false, false},
+		{"excluded meet bottom", NewInterval(-5, 5).ExcludeZero(), Bottom(), false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Meet(tt.b)
+			require.Equal(t, tt.wantContains, got.ContainsZero(), "ContainsZero mismatch")
+			require.Equal(t, tt.wantExcludeSet, got.excludeZero, "excludeZero flag mismatch")
+		})
+	}
+}
+
 func TestDiv(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

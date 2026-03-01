@@ -42,11 +42,72 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 	}
 
 	for _, block := range blocks {
+		a.refineFromPredecessor(block)
 		for _, instr := range block.Instrs {
 			a.transferInstruction(instr)
 		}
 	}
 	return a.findings
+}
+
+// refineFromPredecessor narrows the block interval by walking through the predecessors
+func (a *Analyzer) refineFromPredecessor(block *ssa.BasicBlock) {
+	for _, pred := range block.Preds {
+		// Check if predecessor ended with an If
+		lastInstr := pred.Instrs[len(pred.Instrs)-1]
+		ifInstr, ok := lastInstr.(*ssa.If)
+		if !ok {
+			continue
+		}
+
+		// Figure out: are we in the true or false successor
+		isTrueBranch := pred.Succs[0] == block
+
+		binOp, ok := ifInstr.Cond.(*ssa.BinOp)
+		if !ok {
+			continue
+		}
+
+		a.refineFromCondition(binOp, isTrueBranch)
+	}
+}
+
+func (a *Analyzer) refineFromCondition(cond *ssa.BinOp, isTrueBranch bool) {
+	// Handle cases of `if x == 0` or `if x < 0` where zero is one operand of the condition and variable is the other operand
+	var variable ssa.Value
+	var constVal int64
+	if c, ok := cond.Y.(*ssa.Const); ok && c.Value.Kind() == constant.Int {
+		variable = cond.X
+		constVal = c.Int64()
+	} else if c, ok := cond.X.(*ssa.Const); ok && c.Value.Kind() == constant.Int {
+		variable = cond.Y
+		constVal = c.Int64()
+	} else {
+		// Both sides are variables, can't refine with intervals.
+		return
+	}
+
+	current := a.lookupInterval(variable)
+	var refined Interval
+
+	switch cond.Op {
+	case token.NEQ: // y != 0
+		if isTrueBranch {
+			refined = current.ExcludeZero()
+		} else {
+			refined = NewInterval(constVal, constVal)
+		}
+	case token.EQL:
+		if isTrueBranch {
+			refined = NewInterval(constVal, constVal)
+		} else {
+			refined = current.ExcludeZero()
+		}
+	default:
+		return
+	}
+
+	a.state[variable] = refined
 }
 
 func (a *Analyzer) transferInstruction(instr ssa.Instruction) {
