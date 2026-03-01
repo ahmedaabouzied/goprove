@@ -1,4 +1,4 @@
-package cfg
+package analysis_test
 
 import (
 	"go/ast"
@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"testing"
 
+	"github.com/ahmedaabouzied/goprove/pkg/analysis"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/go/ssa"
 )
@@ -71,7 +72,7 @@ func TestReversePostOrder(t *testing.T) {
 				}
 
 				if fn.Name() == fnName {
-					blocks, err := ReversePostOrder(fn)
+					blocks, err := analysis.ReversePostOrder(fn)
 					require.NoError(t, err)
 					assertBlocks(t, fn.Blocks, blocks)
 				}
