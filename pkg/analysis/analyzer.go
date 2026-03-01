@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 	"go/token"
+	"math"
 
 	"golang.org/x/tools/go/ssa"
 )
@@ -90,6 +91,7 @@ func (a *Analyzer) refineFromCondition(cond *ssa.BinOp, isTrueBranch bool) {
 	current := a.lookupInterval(variable)
 	var refined Interval
 
+	// TODO: Refactor this long function later.
 	switch cond.Op {
 	case token.NEQ: // y != 0
 		if isTrueBranch {
@@ -97,11 +99,35 @@ func (a *Analyzer) refineFromCondition(cond *ssa.BinOp, isTrueBranch bool) {
 		} else {
 			refined = NewInterval(constVal, constVal)
 		}
-	case token.EQL:
+	case token.EQL: // y == 0
 		if isTrueBranch {
 			refined = NewInterval(constVal, constVal)
 		} else {
 			refined = current.ExcludeZero()
+		}
+	case token.LSS: // x < C
+		if isTrueBranch {
+			refined = current.Meet(NewInterval(math.MinInt64, constVal-1))
+		} else {
+			refined = current.Meet(NewInterval(constVal, math.MaxInt64))
+		}
+	case token.LEQ: // x <= c
+		if isTrueBranch {
+			refined = current.Meet(NewInterval(math.MinInt64, constVal))
+		} else {
+			refined = current.Meet(NewInterval(constVal+1, math.MaxInt64))
+		}
+	case token.GTR: // x > c
+		if isTrueBranch {
+			refined = current.Meet(NewInterval(constVal+1, math.MaxInt64))
+		} else {
+			refined = current.Meet(NewInterval(math.MinInt64, constVal))
+		}
+	case token.GEQ: // x >= c
+		if isTrueBranch {
+			refined = current.Meet(NewInterval(constVal, math.MaxInt64))
+		} else {
+			refined = current.Meet(NewInterval(math.MinInt64, constVal-1))
 		}
 	default:
 		return
