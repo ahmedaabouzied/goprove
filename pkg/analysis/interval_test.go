@@ -174,3 +174,130 @@ func TestEquals(t *testing.T) {
 		})
 	}
 }
+
+func TestAdd(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		{"positive ranges", NewInterval(1, 5), NewInterval(3, 7), NewInterval(4, 12)},
+		{"negative ranges", NewInterval(-5, -1), NewInterval(-3, -2), NewInterval(-8, -3)},
+		{"mixed signs", NewInterval(-5, 5), NewInterval(1, 3), NewInterval(-4, 8)},
+		{"single points", NewInterval(3, 3), NewInterval(7, 7), NewInterval(10, 10)},
+		{"add zero interval", NewInterval(1, 5), NewInterval(0, 0), NewInterval(1, 5)},
+		{"spans zero", NewInterval(-10, -1), NewInterval(1, 10), NewInterval(-9, 9)},
+		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
+		{"bottom propagates rhs", NewInterval(1, 5), Bottom(), Bottom()},
+		{"top propagates", Top(), NewInterval(1, 5), Top()},
+		{"top propagates rhs", NewInterval(1, 5), Top(), Top()},
+		{"bottom and top", Bottom(), Top(), Bottom()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Add(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Add(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestSub(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		{"positive ranges", NewInterval(5, 10), NewInterval(1, 3), NewInterval(2, 9)},
+		{"same interval", NewInterval(3, 7), NewInterval(3, 7), NewInterval(-4, 4)},
+		{"single points", NewInterval(10, 10), NewInterval(3, 3), NewInterval(7, 7)},
+		{"negative ranges", NewInterval(-5, -1), NewInterval(-3, -2), NewInterval(-3, 2)},
+		{"mixed signs", NewInterval(-5, 5), NewInterval(1, 3), NewInterval(-8, 4)},
+		{"sub zero", NewInterval(1, 5), NewInterval(0, 0), NewInterval(1, 5)},
+		{"result spans zero", NewInterval(1, 5), NewInterval(2, 8), NewInterval(-7, 3)},
+		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
+		{"bottom propagates rhs", NewInterval(1, 5), Bottom(), Bottom()},
+		{"top propagates", Top(), NewInterval(1, 5), Top()},
+		{"top propagates rhs", NewInterval(1, 5), Top(), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Sub(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Sub(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestMul(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		{"positive ranges", NewInterval(2, 4), NewInterval(3, 5), NewInterval(6, 20)},
+		{"negative times positive", NewInterval(-3, -1), NewInterval(2, 4), NewInterval(-12, -2)},
+		{"negative times negative", NewInterval(-4, -2), NewInterval(-3, -1), NewInterval(2, 12)},
+		{"spans zero lhs", NewInterval(-2, 3), NewInterval(1, 4), NewInterval(-8, 12)},
+		{"spans zero both", NewInterval(-2, 3), NewInterval(-1, 4), NewInterval(-8, 12)},
+		{"single points", NewInterval(3, 3), NewInterval(7, 7), NewInterval(21, 21)},
+		{"mul by zero interval", NewInterval(1, 5), NewInterval(0, 0), NewInterval(0, 0)},
+		{"mul by one", NewInterval(3, 7), NewInterval(1, 1), NewInterval(3, 7)},
+		{"negative spans zero", NewInterval(-3, 2), NewInterval(-4, 1), NewInterval(-8, 12)},
+		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
+		{"top propagates", Top(), NewInterval(1, 5), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Mul(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Mul(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestDiv(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		{"positive ranges", NewInterval(10, 20), NewInterval(2, 5), NewInterval(2, 10)},
+		{"negative dividend", NewInterval(-20, -10), NewInterval(2, 5), NewInterval(-10, -2)},
+		{"negative divisor", NewInterval(10, 20), NewInterval(-5, -2), NewInterval(-10, -2)},
+		{"both negative", NewInterval(-20, -10), NewInterval(-5, -2), NewInterval(2, 10)},
+		{"single points", NewInterval(12, 12), NewInterval(4, 4), NewInterval(3, 3)},
+		{"integer truncation", NewInterval(7, 7), NewInterval(2, 2), NewInterval(3, 3)},
+		{"div by one", NewInterval(3, 7), NewInterval(1, 1), NewInterval(3, 7)},
+
+		// Division by zero cases
+		{"divisor contains zero", NewInterval(1, 10), NewInterval(-1, 1), Top()},
+		{"divisor is zero", NewInterval(1, 10), NewInterval(0, 0), Top()},
+		{"divisor spans zero", NewInterval(1, 10), NewInterval(-5, 5), Top()},
+
+		// Special cases
+		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
+		{"bottom propagates rhs", NewInterval(1, 5), Bottom(), Bottom()},
+		{"top propagates", Top(), NewInterval(1, 5), Top()},
+		{"top propagates rhs", NewInterval(1, 5), Top(), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Div(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Div(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
