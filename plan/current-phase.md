@@ -1,80 +1,73 @@
-# Current Phase: Phase 0 — Foundation
+# Current Phase: Phase 1 — Integer Interval Analysis
 
-**Status**: Not started
-**Branch**: `phase/0-foundation`
-**Goal**: Load Go packages into SSA form, traverse the IR, understand every instruction type.
+**Status**: In progress
+**Branch**: `main`
+**Goal**: Track integer ranges through the program and flag division by zero + overflow.
 
-## Why This Phase Matters
+## Completed Tasks
 
-Everything else builds on SSA. If you don't deeply understand how Go's SSA represents programs — how Phi nodes work, how the CFG connects blocks, how branch conditions map to successors — the interval analysis in Phase 1 will be a nightmare. Take your time here.
+### 0.5 CFG Walker (from Phase 0)
+- [x] Non-recursive RPO walker using explicit stack DFS (NASA P10 compliant)
+- [x] Tests for linear, diamond, loop, nested loop CFG shapes
+- [x] 100% coverage
 
-## Tasks
+### 1.1 Interval Domain
+- [x] Define the Interval abstract domain (Lo, Hi, IsTop, IsBottom)
+- [x] Implement lattice operations: Join (union), Meet (intersection), Equals
+- [x] Implement ContainsZero
+- [x] Implement ExcludeZero flag for != 0 refinement
+- [x] Implement abstract arithmetic: Add, Sub, Mul, Div
+- [x] checkSpecial helper for Bottom/Top propagation in arithmetic
+- [x] Comprehensive tests with 100% coverage
 
-### 0.1 Project Setup
-- [ ] Initialize go module: `go mod init github.com/ahmedakef/goprove`
-- [ ] Create directory structure (cmd/, pkg/, testdata/, plan/)
-- [ ] Add CLAUDE.md to root
-- [ ] First commit
+### 1.2 Basic Analyzer
+- [x] Analyzer struct with per-block state: map[*BasicBlock]map[Value]Interval
+- [x] Finding struct with Pos, Message, Severity (Safe/Warning/Bug)
+- [x] Walk blocks in RPO, transfer instructions per block
+- [x] transferBinOp: handle ADD, SUB, MUL, QUO, REM
+- [x] transferPhi: Join all edges starting from Bottom
+- [x] flagDivisionByZero: distinguish Bug ([0,0]) from Warning (contains zero)
+- [x] lookupInterval: handle *ssa.Const, state map, default Top
 
-### 0.2 Package Loader
-- [ ] Write `pkg/loader/loader.go` that takes a package path and returns SSA program
-- [ ] Use `golang.org/x/tools/go/packages` with `LoadAllSyntax` mode
-- [ ] Use `golang.org/x/tools/go/ssa/ssautil.AllPackages()` to build SSA
-- [ ] Handle errors gracefully (package not found, syntax errors, etc.)
-- [ ] Write tests for loader (load a known package, verify functions exist)
+### 1.3 Branch Refinement
+- [x] refineFromPredecessor: check if predecessor ends with *ssa.If
+- [x] refineFromCondition: dispatch to equality vs comparison
+- [x] refineFromEquality: handle == and != with ExcludeZero
+- [x] refineFromComparison: handle <, <=, >, >= using Meet with constraint intervals
+- [x] Per-block state (initBlockState) to prevent sibling branch corruption
+- [x] 100% test coverage (30+ test cases including synthetic BinOp)
 
-### 0.3 SSA Explorer CLI
-- [ ] Write `cmd/goprove/main.go` as entry point
-- [ ] Accept a package path as argument
-- [ ] Print every function in the package
-- [ ] For each function, print every basic block
-- [ ] For each block, print every instruction with its type
-- [ ] Print the CFG structure (block → successor blocks)
+## Current Task
 
-### 0.4 Understand SSA Instruction Types
-Study and document (in learnings.md) how these SSA instructions work:
-- [ ] `*ssa.BinOp` — binary operations (add, sub, mul, div, comparisons)
-- [ ] `*ssa.UnOp` — unary operations (negation, not, dereference, arrow)
-- [ ] `*ssa.Phi` — phi nodes (join points where values from different paths merge)
-- [ ] `*ssa.If` — conditional branch (has exactly 2 successor blocks)
-- [ ] `*ssa.Jump` — unconditional jump (has exactly 1 successor block)
-- [ ] `*ssa.Return` — function return
-- [ ] `*ssa.Call` — function/method call
-- [ ] `*ssa.Alloc` — memory allocation (stack or heap)
-- [ ] `*ssa.FieldAddr` / `*ssa.Field` — struct field access
-- [ ] `*ssa.IndexAddr` / `*ssa.Index` — array/slice indexing
-- [ ] `*ssa.Slice` — slice operation
-- [ ] `*ssa.MakeSlice` / `*ssa.MakeMap` / `*ssa.MakeChan`
-- [ ] `*ssa.Store` / `*ssa.Load` — memory operations (in SSA these may appear as UnOp)
-- [ ] `*ssa.Convert` — type conversion
-- [ ] `*ssa.ChangeType` / `*ssa.ChangeInterface`
-- [ ] `*ssa.Extract` — extract element from tuple (used for multi-return functions)
-- [ ] `*ssa.Const` — constant values
-- [ ] `*ssa.Parameter` — function parameters
+### 1.4 Worklist Algorithm + Widening
+- [ ] Implement worklist (iteration to fixed point for loops)
+- [ ] Implement widening operator on Interval (to guarantee termination)
+- [ ] Implement narrowing (optional, to improve precision after widening)
+- [ ] Detect loop back-edges and apply widening there
+- [ ] Test on programs with loops (for, range)
 
-### 0.5 CFG Walker
-- [ ] Write a function that visits all blocks in a function in **reverse post-order**
-  (this is the order you need for forward dataflow analysis)
-- [ ] Verify it handles loops correctly (a block can be its own predecessor)
-- [ ] Write tests: create test Go functions with known CFG shapes (linear, if/else, loop, nested)
+## Remaining Tasks
 
-### 0.6 Test Fixtures
-Create `pkg/testdata/` with small Go files that will be used throughout the project:
-- [ ] `simple.go` — basic arithmetic, no control flow
-- [ ] `branches.go` — if/else with various conditions
-- [ ] `loops.go` — for loops, range loops
-- [ ] `divzero.go` — functions with possible and impossible division by zero
-- [ ] `overflow.go` — functions with possible integer overflow
-- [ ] `nilderef.go` — functions with possible nil dereference (for later phases)
-- [ ] `slices.go` — functions with slice indexing (for later phases)
+### 1.5 Integer Overflow Detection
+- [ ] Detect when result interval exceeds type bounds (int8, int16, int32, int64)
+- [ ] Track type information per SSA value
+- [ ] Flag overflow as Warning or Bug
+
+### 1.6 Handle Type Conversions
+- [ ] Handle *ssa.Convert (e.g. int32 → int)
+- [ ] Handle *ssa.UnOp (negation)
+- [ ] Propagate intervals through conversions
+
+### 1.7 CLI Integration + Output
+- [ ] Wire analyzer into cmd/goprove/main.go
+- [ ] Produce colored terminal output (green/orange/red)
+- [ ] Test against suite of known-good and known-bad Go programs
 
 ## Definition of Done
 
-Phase 0 is complete when:
-1. `goprove ./path/to/package` prints clean SSA output for any valid Go package
-2. Ahmed can look at any SSA instruction and explain what it does
-3. The CFG walker correctly traverses any Go function's basic blocks
-4. Test fixtures exist and the loader can process all of them
-5. `plan/learnings.md` documents key SSA concepts with examples
-
-## Estimated Time: 1-2 weeks
+Phase 1 is complete when:
+1. `goprove ./...` detects division by zero with proof
+2. Integer overflow is flagged
+3. Loops are handled correctly (widening guarantees termination)
+4. Branch conditions narrow intervals
+5. Output clearly shows Bug / Warning / Safe
