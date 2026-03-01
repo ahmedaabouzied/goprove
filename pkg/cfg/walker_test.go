@@ -11,82 +11,103 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func TestReversePostOrder_sum(t *testing.T) {
-	src := `
-		package example
-
-		func sum(a int, b int) int {
-			return a + b	
-		}
-	`
-
-	ssaPkg := buildSSA(t, src)
-
-	for _, member := range ssaPkg.Members {
-		fn, ok := member.(*ssa.Function)
-		if !ok {
-			continue
-		}
-		if fn.Name() == "sum" {
-			require.Equal(t, 1, len(fn.Blocks)) // Our function has just one block. No loop, no branches.
-			blocks, err := ReversePostOrder(fn)
-			require.NoError(t, err)
-			require.Equal(t, blocks[0], fn.Blocks[0]) // The entry block is the first and only block.
-		}
-	}
-}
-
-func TestReversePostOrder_multiply(t *testing.T) {
-	src := `
+func TestReversePostOrder(t *testing.T) {
+	srcs := map[string]string{
+		// Multiply represents a case for a function with one block.
+		"multiply": `
 		package example
 
 		func multiply(a int, b int) int {
 			return a * b	
 		}
-	`
+	`,
 
-	ssaPkg := buildSSA(t, src)
+		// Devide represents a case for a function with branches
+		"devide": `
+			package example
 
-	for _, member := range ssaPkg.Members {
-		fn, ok := member.(*ssa.Function)
-		if !ok {
-			continue
+			func devide(a int, b int) int {
+				if b == 0 {
+					panic("devide by 0")	
+				}
+				return a / b
+			}
+	`,
+		// Sum slice represents a case for loops
+		"SumSlice": `
+		package example
+
+		func SumSlice(s []int) int {
+			total := 0
+			for _, v := range s {
+				total += v
+			}
+			return total
 		}
+		`,
+		"Nested": `
+		package example
+			func Nested(n int) int {
+				count := 0
+				for i := 0; i < n; i++ {
+					for j := 0; j < n; j++ {
+						count++
+					}
+				}
+				return count
+			}
+		`,
+	}
 
-		if fn.Name() == "multiply" {
-			require.Equal(t, 1, len(fn.Blocks)) // Our function has just one block. No loop, no branches.
-			blocks, err := ReversePostOrder(fn)
-			require.NoError(t, err)
-			require.Equal(t, blocks[0], fn.Blocks[0]) // The entry block is the first and only block.
-		}
+	for fnName, src := range srcs {
+		t.Run(fnName, func(t *testing.T) {
+			t.Parallel()
+			ssaPkg := buildSSA(t, src)
+
+			for _, member := range ssaPkg.Members {
+				fn, ok := member.(*ssa.Function)
+				if !ok {
+					continue
+				}
+
+				if fn.Name() == fnName {
+					blocks, err := ReversePostOrder(fn)
+					require.NoError(t, err)
+					assertBlocks(t, fn.Blocks, blocks)
+				}
+			}
+		})
 	}
 }
 
-func TestReversePostOrder_devide(t *testing.T) {
-	src := `
-		package example
+func assertBlocks(t *testing.T, fnBlocks []*ssa.BasicBlock, actual []*ssa.BasicBlock) {
+	// All blocks present
+	require.Equal(t, len(fnBlocks), len(actual))
 
-		func devide(a int, b int) int {
-			if b == 0 {
-				panic("devide by 0")	
+	// Entry block is first
+	require.Equal(t, fnBlocks[0], actual[0])
+
+	// No duplicates
+	seen := make(map[int]bool)
+	for _, b := range actual {
+		require.False(t, seen[b.Index], "duplicate block %d", b.Index)
+		seen[b.Index] = true
+	}
+
+	// Predecessor ordering: every block appears after all its
+	// non-back-edge predecessors (pred with a lower RPO position)
+	pos := make(map[int]int) // block index → position in RPO
+	for i, b := range actual {
+		pos[b.Index] = i
+	}
+	for i, b := range actual {
+		for _, pred := range b.Preds {
+			// If pred comes after b in RPO, it's a back-edge — skip
+			if pos[pred.Index] > i {
+				continue
 			}
-			return a / b
-		}
-	`
-
-	ssaPkg := buildSSA(t, src)
-
-	for _, member := range ssaPkg.Members {
-		fn, ok := member.(*ssa.Function)
-		if !ok {
-			continue
-		}
-
-		if fn.Name() == "devide" {
-			require.Equal(t, 3, len(fn.Blocks)) // Our function has just one block. No loop, no branches.
-			blocks, err := ReversePostOrder(fn)
-			require.NoError(t, err)
-			require.Equal(t, blocks[0], fn.Blocks[0]) // The entry block is the first and only block.
+			require.Less(t, pos[pred.Index], i,
+				"block %d should come after predecessor %d", b.Index, pred.Index)
 		}
 	}
 }
