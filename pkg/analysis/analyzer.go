@@ -10,7 +10,7 @@ import (
 )
 
 type Analyzer struct {
-	state    map[ssa.Value]Interval
+	state    map[*ssa.BasicBlock]map[ssa.Value]Interval
 	findings []Finding
 	err      error
 }
@@ -30,11 +30,7 @@ const (
 )
 
 func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
-	a.state = make(map[ssa.Value]Interval)
-
-	for _, param := range fn.Params {
-		a.state[param] = Top()
-	}
+	a.state = make(map[*ssa.BasicBlock]map[ssa.Value]Interval)
 
 	blocks, err := ReversePostOrder(fn)
 	if err != nil {
@@ -43,12 +39,35 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 	}
 
 	for _, block := range blocks {
+		a.initBlockState(block, fn)
 		a.refineFromPredecessor(block)
 		for _, instr := range block.Instrs {
-			a.transferInstruction(instr)
+			a.transferInstruction(block, instr)
 		}
 	}
 	return a.findings
+}
+
+func (a *Analyzer) initBlockState(block *ssa.BasicBlock, fn *ssa.Function) {
+	// Initialize the initial state
+	a.state[block] = make(map[ssa.Value]Interval)
+	if len(block.Preds) == 0 {
+		// Entry block. Initialize params with top
+		for _, param := range fn.Params {
+			a.state[block][param] = Top()
+		}
+	}
+
+	for _, pred := range block.Preds {
+		predState := a.state[pred]
+		for v, interval := range predState {
+			if existing, ok := a.state[block][v]; ok {
+				a.state[block][v] = existing.Join(interval)
+			} else {
+				a.state[block][v] = interval
+			}
+		}
+	}
 }
 
 // refineFromPredecessor narrows the block interval by walking through the predecessors
@@ -69,12 +88,11 @@ func (a *Analyzer) refineFromPredecessor(block *ssa.BasicBlock) {
 			continue
 		}
 
-		a.refineFromCondition(binOp, isTrueBranch)
+		a.refineFromCondition(block, binOp, isTrueBranch)
 	}
 }
 
-func (a *Analyzer) refineFromCondition(cond *ssa.BinOp, isTrueBranch bool) {
-	// Handle cases of `if x == 0` or `if x < 0` where zero is one operand of the condition and variable is the other operand
+func (a *Analyzer) refineFromCondition(block *ssa.BasicBlock, cond *ssa.BinOp, isTrueBranch bool) {
 	var variable ssa.Value
 	var constVal int64
 	if c, ok := cond.Y.(*ssa.Const); ok && c.Value.Kind() == constant.Int {
@@ -84,11 +102,10 @@ func (a *Analyzer) refineFromCondition(cond *ssa.BinOp, isTrueBranch bool) {
 		variable = cond.Y
 		constVal = c.Int64()
 	} else {
-		// Both sides are variables, can't refine with intervals.
 		return
 	}
 
-	current := a.lookupInterval(variable)
+	current := a.lookupInterval(block, variable)
 	var refined Interval
 
 	switch cond.Op {
@@ -96,12 +113,11 @@ func (a *Analyzer) refineFromCondition(cond *ssa.BinOp, isTrueBranch bool) {
 		refined = a.refineFromEquality(cond.Op, current, constVal, isTrueBranch)
 	case token.GTR, token.GEQ, token.LSS, token.LEQ:
 		refined = a.refineFromComparison(cond.Op, current, constVal, isTrueBranch)
-
 	default:
 		return
 	}
 
-	a.state[variable] = refined
+	a.state[block][variable] = refined
 }
 
 func (a *Analyzer) refineFromEquality(op token.Token, current Interval, constVal int64, isTrueBranch bool) Interval {
@@ -123,12 +139,12 @@ func (a *Analyzer) refineFromEquality(op token.Token, current Interval, constVal
 	return refined
 }
 
-func (a *Analyzer) transferInstruction(instr ssa.Instruction) {
+func (a *Analyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instruction) {
 	switch v := instr.(type) {
 	case *ssa.BinOp:
-		a.transferBinOp(v)
+		a.transferBinOp(block, v)
 	case *ssa.Phi:
-		a.transferPhi(v)
+		a.transferPhi(block, v)
 	}
 }
 
@@ -163,9 +179,9 @@ func (a *Analyzer) refineFromComparison(op token.Token, current Interval, constV
 	return refined
 }
 
-func (a *Analyzer) transferBinOp(v *ssa.BinOp) {
-	x := a.lookupInterval(v.X)
-	y := a.lookupInterval(v.Y)
+func (a *Analyzer) transferBinOp(block *ssa.BasicBlock, v *ssa.BinOp) {
+	x := a.lookupInterval(block, v.X)
+	y := a.lookupInterval(block, v.Y)
 
 	var result Interval
 	switch v.Op {
@@ -181,17 +197,17 @@ func (a *Analyzer) transferBinOp(v *ssa.BinOp) {
 	default:
 		result = Top()
 	}
-	a.state[v] = result
+	a.state[block][v] = result
 }
 
-func (a *Analyzer) transferPhi(v *ssa.Phi) {
+func (a *Analyzer) transferPhi(block *ssa.BasicBlock, v *ssa.Phi) {
 	result := Bottom()
 
 	for _, edge := range v.Edges {
-		result = result.Join(a.lookupInterval(edge))
+		result = result.Join(a.lookupInterval(block, edge))
 	}
 
-	a.state[v] = result
+	a.state[block][v] = result
 }
 
 func (a *Analyzer) flagDivisionByZero(v *ssa.BinOp, divisor Interval) {
@@ -215,7 +231,7 @@ func (a *Analyzer) flagDivisionByZero(v *ssa.BinOp, divisor Interval) {
 	})
 }
 
-func (a *Analyzer) lookupInterval(v ssa.Value) Interval {
+func (a *Analyzer) lookupInterval(block *ssa.BasicBlock, v ssa.Value) Interval {
 	if c, ok := v.(*ssa.Const); ok {
 		// Extract int64 from the cosnt value
 		if c.Value.Kind() != constant.Int {
@@ -225,7 +241,7 @@ func (a *Analyzer) lookupInterval(v ssa.Value) Interval {
 		val := c.Int64() // This will not panic because of the check above
 		return NewInterval(val, val)
 	}
-	if iv, ok := a.state[v]; ok {
+	if iv, ok := a.state[block][v]; ok {
 		return iv
 	}
 	return Top() // Value is unknown
