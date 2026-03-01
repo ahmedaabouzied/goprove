@@ -91,8 +91,22 @@ func (a *Analyzer) refineFromCondition(cond *ssa.BinOp, isTrueBranch bool) {
 	current := a.lookupInterval(variable)
 	var refined Interval
 
-	// TODO: Refactor this long function later.
 	switch cond.Op {
+	case token.EQL, token.NEQ:
+		refined = a.refineFromEquality(cond.Op, current, constVal, isTrueBranch)
+	case token.GTR, token.GEQ, token.LSS, token.LEQ:
+		refined = a.refineFromComparison(cond.Op, current, constVal, isTrueBranch)
+
+	default:
+		return
+	}
+
+	a.state[variable] = refined
+}
+
+func (a *Analyzer) refineFromEquality(op token.Token, current Interval, constVal int64, isTrueBranch bool) Interval {
+	var refined Interval
+	switch op {
 	case token.NEQ: // y != 0
 		if isTrueBranch {
 			refined = current.ExcludeZero()
@@ -105,6 +119,22 @@ func (a *Analyzer) refineFromCondition(cond *ssa.BinOp, isTrueBranch bool) {
 		} else {
 			refined = current.ExcludeZero()
 		}
+	}
+	return refined
+}
+
+func (a *Analyzer) transferInstruction(instr ssa.Instruction) {
+	switch v := instr.(type) {
+	case *ssa.BinOp:
+		a.transferBinOp(v)
+	case *ssa.Phi:
+		a.transferPhi(v)
+	}
+}
+
+func (a *Analyzer) refineFromComparison(op token.Token, current Interval, constVal int64, isTrueBranch bool) Interval {
+	var refined Interval
+	switch op {
 	case token.LSS: // x < C
 		if isTrueBranch {
 			refined = current.Meet(NewInterval(math.MinInt64, constVal-1))
@@ -129,20 +159,8 @@ func (a *Analyzer) refineFromCondition(cond *ssa.BinOp, isTrueBranch bool) {
 		} else {
 			refined = current.Meet(NewInterval(math.MinInt64, constVal-1))
 		}
-	default:
-		return
 	}
-
-	a.state[variable] = refined
-}
-
-func (a *Analyzer) transferInstruction(instr ssa.Instruction) {
-	switch v := instr.(type) {
-	case *ssa.BinOp:
-		a.transferBinOp(v)
-	case *ssa.Phi:
-		a.transferPhi(v)
-	}
+	return refined
 }
 
 func (a *Analyzer) transferBinOp(v *ssa.BinOp) {
