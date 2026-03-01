@@ -91,6 +91,49 @@ func (i Interval) Equals(other Interval) bool {
 	return i.Lo == other.Lo && i.Hi == other.Hi
 }
 
+func (i Interval) Add(other Interval) Interval {
+	if res, ok := checkSpecial(i, other); ok {
+		return res
+	}
+
+	lo := i.Lo + other.Lo
+	hi := i.Hi + other.Hi
+
+	return NewInterval(lo, hi)
+}
+
+func (i Interval) Sub(other Interval) Interval {
+	if res, ok := checkSpecial(i, other); ok {
+		return res
+	}
+	lo := i.Lo - other.Hi
+	hi := i.Hi - other.Lo
+
+	return NewInterval(lo, hi)
+}
+
+func (i Interval) Mul(other Interval) Interval {
+	if res, ok := checkSpecial(i, other); ok {
+		return res
+	}
+	lo := min(i.Lo*other.Lo, i.Lo*other.Hi, i.Hi*other.Lo, i.Hi*other.Hi)
+	hi := max(i.Lo*other.Lo, i.Lo*other.Hi, i.Hi*other.Lo, i.Hi*other.Hi)
+
+	return NewInterval(lo, hi)
+}
+
+func (i Interval) Div(other Interval) Interval {
+	if res, ok := checkSpecial(i, other); ok {
+		return res
+	}
+	if other.ContainsZero() {
+		return Top()
+	}
+	lo := min(i.Lo/other.Lo, i.Lo/other.Hi, i.Hi/other.Lo, i.Hi/other.Hi)
+	hi := max(i.Lo/other.Lo, i.Lo/other.Hi, i.Hi/other.Lo, i.Hi/other.Hi)
+	return NewInterval(lo, hi)
+}
+
 func least(x, y int64) int64 {
 	if x < y {
 		return x
@@ -103,4 +146,15 @@ func greatest(x, y int64) int64 {
 		return y
 	}
 	return x
+}
+
+func checkSpecial(a, b Interval) (Interval, bool) {
+	if a.IsBottom || b.IsBottom {
+		return Bottom(), true
+	}
+
+	if a.IsTop || b.IsTop {
+		return Top(), true
+	}
+	return Interval{}, false
 }
