@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 	"go/token"
+	"maps"
 	"math"
 
 	"golang.org/x/tools/go/ssa"
@@ -29,6 +30,8 @@ const (
 	Bug
 )
 
+const maxIterations = 1000
+
 func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 	a.state = make(map[*ssa.BasicBlock]map[ssa.Value]Interval)
 
@@ -38,14 +41,52 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 		return nil
 	}
 
+	workQueue := []*ssa.BasicBlock{}
 	for _, block := range blocks {
+		workQueue = append(workQueue, block)
+	}
+
+	// Iterate through the queue
+	iterations := 0
+	for len(workQueue) > 0 && iterations < maxIterations {
+		iterations += 1
+		block := workQueue[0]
+		workQueue = workQueue[1:]
+		// Copy blocks current state before initializing it.
+		oldState := a.copyBlockState(block)
 		a.initBlockState(block, fn)
 		a.refineFromPredecessor(block)
 		for _, instr := range block.Instrs {
 			a.transferInstruction(block, instr)
 		}
+
+		// Compare old state with the current state.
+		// If they're not the same, loop has not ended.
+		// we need to loop again.
+		if !stateEqual(oldState, a.state[block]) {
+			for _, succ := range block.Succs {
+				workQueue = append(workQueue, succ)
+			}
+		}
+	}
+	for _, block := range blocks {
+		for _, instr := range block.Instrs {
+			a.checkInstruction(block, instr)
+		}
 	}
 	return a.findings
+}
+
+func (a *Analyzer) copyBlockState(block *ssa.BasicBlock) map[ssa.Value]Interval {
+	cpy := make(map[ssa.Value]Interval)
+	if currState, ok := a.state[block]; ok {
+		maps.Copy(cpy, currState)
+	}
+	return cpy
+}
+
+func stateEqual(s1, s2 map[ssa.Value]Interval) bool {
+	return maps.Equal(s1, s2)
 }
 
 func (a *Analyzer) initBlockState(block *ssa.BasicBlock, fn *ssa.Function) {
@@ -148,6 +189,16 @@ func (a *Analyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 	}
 }
 
+func (a *Analyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction) {
+	switch v := instr.(type) {
+	case *ssa.BinOp:
+		if v.Op == token.QUO || v.Op == token.REM {
+			y := a.lookupInterval(block, v.Y)
+			a.flagDivisionByZero(v, y)
+		}
+	}
+}
+
 func (a *Analyzer) refineFromComparison(op token.Token, current Interval, constVal int64, isTrueBranch bool) Interval {
 	var refined Interval
 	switch op {
@@ -192,7 +243,6 @@ func (a *Analyzer) transferBinOp(block *ssa.BasicBlock, v *ssa.BinOp) {
 	case token.MUL:
 		result = x.Mul(y)
 	case token.QUO, token.REM:
-		a.flagDivisionByZero(v, y)
 		result = x.Div(y)
 	default:
 		result = Top()

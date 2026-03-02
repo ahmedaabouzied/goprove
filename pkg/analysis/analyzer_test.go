@@ -499,6 +499,139 @@ func TestAnalyze(t *testing.T) {
 	}
 }
 
+// TestAnalyzeLoops tests loop handling. These tests require the worklist
+// algorithm with widening to produce correct results. Without iteration
+// to a fixed point, the single RPO pass misses back-edge contributions
+// to Phi nodes, making loop variables imprecise.
+func TestAnalyzeLoops(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src      string
+		fnName   string
+		wantLen  int
+		severity analysis.Severity
+		message  string
+	}{
+		"div by loop counter starting at 1 is safe": {
+			// i starts at 1 and only increments.
+			// After widening, i should be [1, MaxInt64]. No zero. Safe.
+			src: `
+				package example
+
+				func divByCounter(x, n int) int {
+					result := 0
+					for i := 1; i <= n; i++ {
+						result += x / i
+					}
+					return result
+				}
+			`,
+			fnName:  "divByCounter",
+			wantLen: 0,
+		},
+		"div by s+1 after loop accumulation is safe": {
+			// s starts at 0 and accumulates. s+1 >= 1 always. Safe.
+			src: `
+				package example
+
+				func divAfterLoop(x, n int) int {
+					s := 0
+					for i := 1; i <= n; i++ {
+						s += i
+					}
+					return x / (s + 1)
+				}
+			`,
+			fnName:  "divAfterLoop",
+			wantLen: 0,
+		},
+		"div by loop counter starting at 0 warns": {
+			// i starts at 0. Even with widening, [0, MaxInt64] contains zero. Warn.
+			src: `
+				package example
+
+				func divByZeroCounter(x, n int) int {
+					result := 0
+					for i := 0; i < n; i++ {
+						result += x / i
+					}
+					return result
+				}
+			`,
+			fnName:   "divByZeroCounter",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"div by loop counter with guard inside loop is safe": {
+			// i starts at 0, but division only happens when i > 0. Safe.
+			src: `
+				package example
+
+				func divGuardedInLoop(x, n int) int {
+					result := 0
+					for i := 0; i < n; i++ {
+						if i > 0 {
+							result += x / i
+						}
+					}
+					return result
+				}
+			`,
+			fnName:  "divGuardedInLoop",
+			wantLen: 0,
+		},
+		"loop with constant bound keeps interval bounded": {
+			// i goes from 0 to 9. After the loop, i == 10.
+			// Dividing by i+1 (>= 1) is safe.
+			src: `
+				package example
+
+				func divAfterBoundedLoop(x int) int {
+					s := 0
+					for i := 0; i < 10; i++ {
+						s += i
+					}
+					return x / (s + 1)
+				}
+			`,
+			fnName:  "divAfterBoundedLoop",
+			wantLen: 0,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ssaPkg := buildSSA(t, tt.src)
+
+			var fn *ssa.Function
+			for _, member := range ssaPkg.Members {
+				f, ok := member.(*ssa.Function)
+				if !ok {
+					continue
+				}
+				if f.Name() == tt.fnName {
+					fn = f
+					break
+				}
+			}
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			require.Len(t, findings, tt.wantLen)
+
+			if tt.wantLen > 0 {
+				require.Equal(t, tt.severity, findings[0].Severity)
+				require.Equal(t, tt.message, findings[0].Message)
+			}
+		})
+	}
+}
+
 func TestAnalyzeEmptyBlocks(t *testing.T) {
 	t.Parallel()
 
