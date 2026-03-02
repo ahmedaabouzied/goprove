@@ -148,6 +148,18 @@ func (i Interval) Div(other Interval) Interval {
 	return NewInterval(lo, hi)
 }
 
+func (i Interval) Neg() Interval {
+	if i.IsBottom {
+		return Bottom()
+	}
+
+	if i.IsTop {
+		return Top()
+	}
+
+	return NewInterval(-i.Hi, -i.Lo)
+}
+
 func (i Interval) Widen(new Interval) Interval {
 	if i.IsBottom {
 		return new

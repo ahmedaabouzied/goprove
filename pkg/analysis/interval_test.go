@@ -362,6 +362,48 @@ func TestExcludeZero_Meet(t *testing.T) {
 	}
 }
 
+func TestNeg(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		want Interval
+	}{
+		// Normal ranges
+		{"positive range", NewInterval(1, 5), NewInterval(-5, -1)},
+		{"negative range", NewInterval(-5, -1), NewInterval(1, 5)},
+		{"spans zero", NewInterval(-3, 7), NewInterval(-7, 3)},
+		{"single positive", NewInterval(4, 4), NewInterval(-4, -4)},
+		{"single negative", NewInterval(-4, -4), NewInterval(4, 4)},
+		{"zero", NewInterval(0, 0), NewInterval(0, 0)},
+
+		// Asymmetric ranges
+		{"mostly positive", NewInterval(-1, 10), NewInterval(-10, 1)},
+		{"mostly negative", NewInterval(-10, 1), NewInterval(-1, 10)},
+
+		// Extreme values
+		{"max int64", NewInterval(0, math.MaxInt64), NewInterval(-math.MaxInt64, 0)},
+		{"min to zero", NewInterval(math.MinInt64 + 1, 0), NewInterval(0, math.MaxInt64)},
+
+		// Double negation identity: Neg(Neg(x)) == x
+		{"double neg positive", NewInterval(2, 8).Neg(), NewInterval(2, 8)},
+		{"double neg negative", NewInterval(-6, -3).Neg(), NewInterval(-6, -3)},
+		{"double neg spans zero", NewInterval(-4, 5).Neg(), NewInterval(-4, 5)},
+
+		// Special cases
+		{"bottom", Bottom(), Bottom()},
+		{"top", Top(), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Neg()
+			require.True(t, got.Equals(tt.want), "%s: %+v.Neg() = %+v, want %+v", tt.name, tt.a, got, tt.want)
+		})
+	}
+}
+
 func TestWiden(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
