@@ -78,6 +78,59 @@ func TestTransferUnOp_unsupportedOp(t *testing.T) {
 	}
 }
 
+func TestLookupInterval_nilConst(t *testing.T) {
+	t.Parallel()
+
+	// In real Go SSA, nil literals and zero-value pointers are represented
+	// as *ssa.Const with Value == nil. Calling c.Value.Kind() on these
+	// without a nil guard causes a panic. lookupInterval must handle this
+	// gracefully and return Top (unknown).
+	block := &ssa.BasicBlock{}
+	nilConst := &ssa.Const{} // Value is nil — simulates a nil pointer literal
+
+	a := &Analyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]Interval{
+			block: {},
+		},
+	}
+
+	got := a.lookupInterval(block, nilConst)
+	if !got.Equals(Top()) {
+		t.Errorf("expected Top for nil-valued *ssa.Const, got %+v", got)
+	}
+}
+
+func TestRefineFromCondition_nilConst(t *testing.T) {
+	t.Parallel()
+
+	// When refineFromCondition encounters a comparison like `x < nil`,
+	// the *ssa.Const has Value == nil. The function must not panic and
+	// should leave the state unchanged (early return).
+	block := &ssa.BasicBlock{}
+	param := &ssa.Parameter{}
+
+	a := &Analyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]Interval{
+			block: {param: Top()},
+		},
+	}
+
+	// cond.Y is a nil-valued Const (simulates comparison with nil)
+	cond := &ssa.BinOp{
+		Op: token.LSS,
+	}
+	cond.X = param
+	cond.Y = &ssa.Const{} // Value == nil
+
+	a.refineFromCondition(block, cond, true)
+
+	// State should be unchanged — nil Const is not an int, early return.
+	got := a.state[block][param]
+	if !got.Equals(Top()) {
+		t.Errorf("expected Top (unchanged), got %+v", got)
+	}
+}
+
 func TestRefineFromCondition_unsupportedOp(t *testing.T) {
 	t.Parallel()
 

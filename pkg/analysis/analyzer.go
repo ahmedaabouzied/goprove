@@ -158,10 +158,10 @@ func (a *Analyzer) refineFromPredecessor(block *ssa.BasicBlock) {
 func (a *Analyzer) refineFromCondition(block *ssa.BasicBlock, cond *ssa.BinOp, isTrueBranch bool) {
 	var variable ssa.Value
 	var constVal int64
-	if c, ok := cond.Y.(*ssa.Const); ok && c.Value.Kind() == constant.Int {
+	if c, ok := cond.Y.(*ssa.Const); ok && c.Value != nil && c.Value.Kind() == constant.Int {
 		variable = cond.X
 		constVal = c.Int64()
-	} else if c, ok := cond.X.(*ssa.Const); ok && c.Value.Kind() == constant.Int {
+	} else if c, ok := cond.X.(*ssa.Const); ok && c.Value != nil && c.Value.Kind() == constant.Int {
 		variable = cond.Y
 		constVal = c.Int64()
 	} else {
@@ -327,7 +327,7 @@ func (a *Analyzer) flagDivisionByZero(v *ssa.BinOp, divisor Interval) {
 func (a *Analyzer) lookupInterval(block *ssa.BasicBlock, v ssa.Value) Interval {
 	if c, ok := v.(*ssa.Const); ok {
 		// Extract int64 from the cosnt value
-		if c.Value.Kind() != constant.Int {
+		if c.Value == nil || c.Value.Kind() != constant.Int {
 			a.err = fmt.Errorf("parsing non int const into an interval")
 			return Top()
 		}
