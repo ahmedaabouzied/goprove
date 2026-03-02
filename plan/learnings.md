@@ -26,6 +26,11 @@ Things learned while building GoProve. Updated as we go.
 - **ExcludeZero**: A targeted extension to handle `!= 0` checks. Can't be represented as a single interval (Top minus {0} is not an interval). The flag is checked in `ContainsZero`.
 - **Per-block state**: Each block must have its own state map. A single global state causes sibling branches to corrupt each other. This is the standard approach in dataflow analysis frameworks.
 - **Non-relational limitation**: Interval analysis can't prove `x - x = 0` because `Top.Sub(Top) = Top`. Relational domains (octagons, polyhedra) could, but are not on the current roadmap.
+- **Widening**: Forces fixed-point convergence at loop headers by jumping to extremes when bounds grow. `[1,1].Widen([1,2]) = [1, MaxInt64]`. Applied after joining all predecessors, before transfer.
+- **Loop header detection**: A block is a loop header if any predecessor has a higher RPO index (back-edge). Computed via `rpoIndex` map.
+- **Unvisited predecessors return Bottom**: When a Phi node looks up an edge from an unvisited block, returning Top poisons everything. Bottom is correct — it's "no info yet" and is the identity for Join. This was the key insight for making Phi nodes work across back-edges.
+- **Phi edges come from predecessor blocks**: `transferPhi` must look up `v.Edges[i]` from `block.Preds[i]`'s state, not the current block's state. Otherwise back-edge values are lost.
+- **Separate check pass**: Findings must be collected after the worklist converges, not during iteration. Otherwise re-processed blocks produce duplicates, and intermediate (unsound) states generate stale findings.
 
 ## Go Tooling Internals
 

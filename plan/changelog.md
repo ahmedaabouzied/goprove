@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-03-02 — Worklist Algorithm + Widening
+
+- Implemented worklist algorithm with change detection (copyBlockState, stateEqual using maps.Copy/maps.Equal)
+- Implemented Widen operator on Interval: detects bound growth, jumps to MinInt64/MaxInt64
+- Identified loop headers via RPO index comparison (back-edge detection)
+- Applied widening at loop headers after joining all predecessor states
+- Separated finding collection into a final check pass on converged state (no duplicates)
+- Added maxIterations safety cap (1000) for pre-narrowing termination guarantee
+- Fixed critical Phi bug: transferPhi now looks up edge values from predecessor blocks
+- Fixed lookupInterval: unvisited blocks return Bottom (identity for Join) instead of Top
+- 48 test cases total (30 base + 5 loop + 13 advanced loop patterns), 100% coverage
+- Test patterns include: nested loops, while-style loops, break, step-by-2, guarded division, mod in loops, complex CFGs
+
 ## 2026-03-01 — Branch Refinement + Per-Block State
 
 - Added comparison operators (<, <=, >, >=) to refineFromCondition using Meet

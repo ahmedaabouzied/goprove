@@ -37,14 +37,18 @@
 - [x] Per-block state (initBlockState) to prevent sibling branch corruption
 - [x] 100% test coverage (30+ test cases including synthetic BinOp)
 
-## Current Task
-
 ### 1.4 Worklist Algorithm + Widening
-- [ ] Implement worklist (iteration to fixed point for loops)
-- [ ] Implement widening operator on Interval (to guarantee termination)
+- [x] Implement worklist with change detection + successor re-queuing
+- [x] Implement copyBlockState and stateEqual helpers (using maps.Copy/maps.Equal)
+- [x] Implement Widen operator on Interval (jump to MinInt64/MaxInt64 on bound growth)
+- [x] Detect loop headers via RPO index (back-edge = pred has higher RPO index)
+- [x] Apply widening at loop headers after joining predecessor states
+- [x] Separate check pass: findings collected only on converged state (no duplicates)
+- [x] Max iterations safety cap (1000)
+- [x] Fixed lookupInterval: unvisited blocks return Bottom (not Top) for Phi correctness
+- [x] Fixed transferPhi: look up edge values from predecessor blocks (not current block)
+- [x] 48 test cases passing, 100% coverage
 - [ ] Implement narrowing (optional, to improve precision after widening)
-- [ ] Detect loop back-edges and apply widening there
-- [ ] Test on programs with loops (for, range)
 
 ## Remaining Tasks
 
