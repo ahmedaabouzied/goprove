@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -357,6 +358,65 @@ func TestExcludeZero_Meet(t *testing.T) {
 			got := tt.a.Meet(tt.b)
 			require.Equal(t, tt.wantContains, got.ContainsZero(), "ContainsZero mismatch")
 			require.Equal(t, tt.wantExcludeSet, got.excludeZero, "excludeZero flag mismatch")
+		})
+	}
+}
+
+func TestWiden(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		old  Interval
+		new  Interval
+		want Interval
+	}{
+		// Upper bound grew → jump to MaxInt64
+		{"upper grew", NewInterval(1, 1), NewInterval(1, 2), NewInterval(1, math.MaxInt64)},
+		// Lower bound shrank → jump to MinInt64
+		{"lower shrank", NewInterval(0, 5), NewInterval(-1, 5), NewInterval(math.MinInt64, 5)},
+		// Both bounds moved → jump to both extremes
+		{"both moved", NewInterval(0, 5), NewInterval(-1, 6), NewInterval(math.MinInt64, math.MaxInt64)},
+		// No change → fixed point (keep old)
+		{"no change", NewInterval(0, 5), NewInterval(0, 5), NewInterval(0, 5)},
+		// New interval shrank (subset of old) → keep old bounds
+		{"shrank", NewInterval(0, 5), NewInterval(1, 3), NewInterval(0, 5)},
+		// Single point growing up
+		{"single point upper grew", NewInterval(3, 3), NewInterval(3, 4), NewInterval(3, math.MaxInt64)},
+		// Single point growing down
+		{"single point lower shrank", NewInterval(3, 3), NewInterval(2, 3), NewInterval(math.MinInt64, 3)},
+		// Already at extremes → stays at extremes
+		{"already max hi", NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64)},
+		{"already min lo", NewInterval(math.MinInt64, 0), NewInterval(math.MinInt64, 0), NewInterval(math.MinInt64, 0)},
+		{"already full range", NewInterval(math.MinInt64, math.MaxInt64), NewInterval(math.MinInt64, math.MaxInt64), NewInterval(math.MinInt64, math.MaxInt64)},
+
+		// Bottom cases
+		{"old is bottom", Bottom(), NewInterval(1, 5), NewInterval(1, 5)},
+		{"new is bottom", NewInterval(1, 5), Bottom(), NewInterval(1, 5)},
+		{"both bottom", Bottom(), Bottom(), Bottom()},
+
+		// Top cases
+		{"old is top", Top(), NewInterval(1, 5), Top()},
+		{"new is top", NewInterval(1, 5), Top(), Top()},
+		{"both top", Top(), Top(), Top()},
+		{"top and bottom", Top(), Bottom(), Top()},
+		{"bottom and top", Bottom(), Top(), Top()},
+
+		// Negative intervals
+		{"negative upper grew", NewInterval(-10, -5), NewInterval(-10, -3), NewInterval(-10, math.MaxInt64)},
+		{"negative lower shrank", NewInterval(-5, -1), NewInterval(-8, -1), NewInterval(math.MinInt64, -1)},
+		{"negative no change", NewInterval(-10, -5), NewInterval(-10, -5), NewInterval(-10, -5)},
+
+		// Typical loop counter pattern: i starts at 0, increments
+		{"loop counter pass 1", Bottom(), NewInterval(0, 0), NewInterval(0, 0)},
+		{"loop counter pass 2", NewInterval(0, 0), NewInterval(0, 1), NewInterval(0, math.MaxInt64)},
+		{"loop counter pass 3 stable", NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.old.Widen(tt.new)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Widen(%+v) = %+v, want %+v", tt.name, tt.old, tt.new, got, tt.want)
 		})
 	}
 }

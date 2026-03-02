@@ -1,5 +1,7 @@
 package analysis
 
+import "math"
+
 type Interval struct {
 	Lo          int64
 	Hi          int64
@@ -143,6 +145,31 @@ func (i Interval) Div(other Interval) Interval {
 	}
 	lo := min(i.Lo/other.Lo, i.Lo/other.Hi, i.Hi/other.Lo, i.Hi/other.Hi)
 	hi := max(i.Lo/other.Lo, i.Lo/other.Hi, i.Hi/other.Lo, i.Hi/other.Hi)
+	return NewInterval(lo, hi)
+}
+
+func (i Interval) Widen(new Interval) Interval {
+	if i.IsBottom {
+		return new
+	}
+	if new.IsBottom {
+		return i
+	}
+
+	if i.IsTop || new.IsTop {
+		return Top()
+	}
+
+	lo := i.Lo
+	if new.Lo < i.Lo {
+		lo = math.MinInt64
+	}
+
+	hi := i.Hi
+	if new.Hi > i.Hi {
+		hi = math.MaxInt64
+	}
+
 	return NewInterval(lo, hi)
 }
 
