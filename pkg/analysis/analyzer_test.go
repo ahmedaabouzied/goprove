@@ -429,11 +429,8 @@ func TestAnalyze(t *testing.T) {
 			severity: analysis.Warning,
 			message:  "possible division by zero",
 		},
-		"unhandled instruction type falls through to Top": {
-			// -x is a *ssa.UnOp, which transferInstruction doesn't handle.
-			// So when lookupInterval is called for -x as a divisor,
-			// it's not a const and not in the state map → returns Top().
-			// Top contains zero, so division warns.
+		"negation of param is still Top warns": {
+			// -x negates Top → Top. Top contains zero, so division warns.
 			src: `
 				package example
 
@@ -443,6 +440,49 @@ func TestAnalyze(t *testing.T) {
 				}
 			`,
 			fnName:   "negDiv",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"negation of positive constant is safe": {
+			// -5 is [5,5].Neg() = [-5,-5]. No zero. Safe.
+			src: `
+				package example
+
+				func negConstDiv(x int) int {
+					c := 5
+					d := -c
+					return x / d
+				}
+			`,
+			fnName:  "negConstDiv",
+			wantLen: 0,
+		},
+		"type conversion preserves interval": {
+			// int32(5) converts [5,5] → [5,5]. No zero. Safe.
+			src: `
+				package example
+
+				func convertDiv(x int) int {
+					c := 5
+					d := int64(c)
+					return x / int(d)
+				}
+			`,
+			fnName:  "convertDiv",
+			wantLen: 0,
+		},
+		"type conversion of param stays Top warns": {
+			// int32(y) converts Top → Top. Contains zero. Warns.
+			src: `
+				package example
+
+				func convertParamDiv(x int, y int32) int {
+					d := int(y)
+					return x / d
+				}
+			`,
+			fnName:   "convertParamDiv",
 			wantLen:  1,
 			severity: analysis.Warning,
 			message:  "possible division by zero",

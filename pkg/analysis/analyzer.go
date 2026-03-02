@@ -208,7 +208,28 @@ func (a *Analyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 		a.transferBinOp(block, v)
 	case *ssa.Phi:
 		a.transferPhi(block, v)
+	case *ssa.UnOp:
+		a.transferUnOp(block, v)
+	case *ssa.Convert:
+		a.transferConvert(block, v)
 	}
+}
+
+func (a *Analyzer) transferUnOp(block *ssa.BasicBlock, v *ssa.UnOp) {
+	x := a.lookupInterval(block, v.X)
+	var result Interval
+	switch v.Op {
+	case token.SUB:
+		result = x.Neg()
+	default:
+		result = Top()
+	}
+
+	a.state[block][v] = result
+}
+
+func (a *Analyzer) transferConvert(block *ssa.BasicBlock, v *ssa.Convert) {
+	a.state[block][v] = a.lookupInterval(block, v.X)
 }
 
 func (a *Analyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction) {
