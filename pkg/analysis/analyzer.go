@@ -41,9 +41,12 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 		return nil
 	}
 
+	rpoIndex := make(map[*ssa.BasicBlock]int)
+
 	workQueue := []*ssa.BasicBlock{}
-	for _, block := range blocks {
+	for i, block := range blocks {
 		workQueue = append(workQueue, block)
+		rpoIndex[block] = i
 	}
 
 	// Iterate through the queue
@@ -54,7 +57,7 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 		workQueue = workQueue[1:]
 		// Copy blocks current state before initializing it.
 		oldState := a.copyBlockState(block)
-		a.initBlockState(block, fn)
+		a.initBlockState(rpoIndex, block, oldState, fn)
 		a.refineFromPredecessor(block)
 		for _, instr := range block.Instrs {
 			a.transferInstruction(block, instr)
@@ -89,7 +92,17 @@ func stateEqual(s1, s2 map[ssa.Value]Interval) bool {
 	return maps.Equal(s1, s2)
 }
 
-func (a *Analyzer) initBlockState(block *ssa.BasicBlock, fn *ssa.Function) {
+func isLoopHeader(block *ssa.BasicBlock, rpoIndex map[*ssa.BasicBlock]int) bool {
+	blockRepoIndex := rpoIndex[block]
+	for _, pred := range block.Preds {
+		if rpoIndex[pred] > blockRepoIndex {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Analyzer) initBlockState(rpoIndex map[*ssa.BasicBlock]int, block *ssa.BasicBlock, oldState map[ssa.Value]Interval, fn *ssa.Function) {
 	// Initialize the initial state
 	a.state[block] = make(map[ssa.Value]Interval)
 	if len(block.Preds) == 0 {
@@ -106,6 +119,15 @@ func (a *Analyzer) initBlockState(block *ssa.BasicBlock, fn *ssa.Function) {
 				a.state[block][v] = existing.Join(interval)
 			} else {
 				a.state[block][v] = interval
+			}
+		}
+	}
+	// Widen the loop header interval to the max interval
+	// the loop will have.
+	if isLoopHeader(block, rpoIndex) {
+		for v, newVal := range a.state[block] {
+			if oldVal, ok := oldState[v]; ok {
+				a.state[block][v] = oldVal.Widen(newVal)
 			}
 		}
 	}
@@ -252,9 +274,9 @@ func (a *Analyzer) transferBinOp(block *ssa.BasicBlock, v *ssa.BinOp) {
 
 func (a *Analyzer) transferPhi(block *ssa.BasicBlock, v *ssa.Phi) {
 	result := Bottom()
-
-	for _, edge := range v.Edges {
-		result = result.Join(a.lookupInterval(block, edge))
+	for i, edge := range v.Edges {
+		pred := block.Preds[i]
+		result = result.Join(a.lookupInterval(pred, edge))
 	}
 
 	a.state[block][v] = result
@@ -291,7 +313,11 @@ func (a *Analyzer) lookupInterval(block *ssa.BasicBlock, v ssa.Value) Interval {
 		val := c.Int64() // This will not panic because of the check above
 		return NewInterval(val, val)
 	}
-	if iv, ok := a.state[block][v]; ok {
+	blockState, visited := a.state[block]
+	if !visited {
+		return Bottom()
+	}
+	if iv, ok := blockState[v]; ok {
 		return iv
 	}
 	return Top() // Value is unknown

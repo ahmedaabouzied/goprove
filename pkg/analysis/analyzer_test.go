@@ -632,6 +632,285 @@ func TestAnalyzeLoops(t *testing.T) {
 	}
 }
 
+// TestAnalyzeLoopsAdvanced tests more complex loop patterns that exercise
+// the worklist algorithm, widening, and the interaction between loops
+// and branch refinement.
+func TestAnalyzeLoopsAdvanced(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src      string
+		fnName   string
+		wantLen  int
+		severity analysis.Severity
+		message  string
+	}{
+		"nested loop with safe divisor": {
+			// Both i and j start at 1. Division by j is safe.
+			src: `
+				package example
+
+				func nestedLoop(x, n, m int) int {
+					result := 0
+					for i := 1; i <= n; i++ {
+						for j := 1; j <= m; j++ {
+							result += x / j
+						}
+					}
+					return result
+				}
+			`,
+			fnName:  "nestedLoop",
+			wantLen: 0,
+		},
+		"nested loop with unsafe divisor starting at 0": {
+			// Inner loop starts j at 0. Division by j warns.
+			src: `
+				package example
+
+				func nestedLoopUnsafe(x, n, m int) int {
+					result := 0
+					for i := 1; i <= n; i++ {
+						for j := 0; j < m; j++ {
+							result += x / j
+						}
+					}
+					return result
+				}
+			`,
+			fnName:   "nestedLoopUnsafe",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"while-style loop with decrementing counter": {
+			// Counter starts at n (Top) and decrements. Division by counter warns
+			// because Top contains zero.
+			src: `
+				package example
+
+				func decLoop(x, n int) int {
+					result := 0
+					i := n
+					for i > 0 {
+						result += x / i
+						i--
+					}
+					return result
+				}
+			`,
+			fnName:  "decLoop",
+			wantLen: 0,
+		},
+		"loop accumulator used as divisor warns": {
+			// s starts at 0 and accumulates. s itself may be zero (first iteration).
+			src: `
+				package example
+
+				func accumDiv(x, n int) int {
+					s := 0
+					for i := 0; i < n; i++ {
+						s += i
+					}
+					return x / s
+				}
+			`,
+			fnName:   "accumDiv",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"div by constant inside loop is safe": {
+			// Constant divisor never changes regardless of loop iterations.
+			src: `
+				package example
+
+				func constDivInLoop(x, n int) int {
+					result := 0
+					for i := 0; i < n; i++ {
+						result += x / 7
+					}
+					return result
+				}
+			`,
+			fnName:  "constDivInLoop",
+			wantLen: 0,
+		},
+		"multiple divisions in loop body": {
+			// First division by constant (safe), second by loop var starting at 0 (warn).
+			src: `
+				package example
+
+				func multiDivLoop(x, n int) int {
+					result := 0
+					for i := 0; i < n; i++ {
+						a := x / 5
+						b := a / i
+						result += b
+					}
+					return result
+				}
+			`,
+			fnName:   "multiDivLoop",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"loop counter with step 2 starting at 1 is safe": {
+			// i goes 1, 3, 5, 7... Always positive. Safe.
+			src: `
+				package example
+
+				func stepTwoLoop(x, n int) int {
+					result := 0
+					for i := 1; i < n; i += 2 {
+						result += x / i
+					}
+					return result
+				}
+			`,
+			fnName:  "stepTwoLoop",
+			wantLen: 0,
+		},
+		"loop with break still analyzes correctly": {
+			// Even with a break, the division happens when i >= 1.
+			src: `
+				package example
+
+				func breakLoop(x, n int) int {
+					result := 0
+					for i := 1; i <= n; i++ {
+						if i > 100 {
+							break
+						}
+						result += x / i
+					}
+					return result
+				}
+			`,
+			fnName:  "breakLoop",
+			wantLen: 0,
+		},
+		"division after loop with counter starting at 1": {
+			// After the loop, i has been widened to [1, MaxInt64].
+			// Division by i after the loop is safe.
+			src: `
+				package example
+
+				func divAfterLoopCounter(x, n int) int {
+					i := 1
+					for i <= n {
+						i++
+					}
+					return x / i
+				}
+			`,
+			fnName:  "divAfterLoopCounter",
+			wantLen: 0,
+		},
+		"loop with guarded division by zero var safe": {
+			// i starts at 0, but we only divide when i != 0.
+			src: `
+				package example
+
+				func guardedZeroVar(x, n int) int {
+					result := 0
+					for i := 0; i < n; i++ {
+						if i != 0 {
+							result += x / i
+						}
+					}
+					return result
+				}
+			`,
+			fnName:  "guardedZeroVar",
+			wantLen: 0,
+		},
+		"mod in loop by counter starting at 1 is safe": {
+			// Mod (%) has the same zero-divisor issue as division.
+			src: `
+				package example
+
+				func modInLoop(x, n int) int {
+					result := 0
+					for i := 1; i <= n; i++ {
+						result += x % i
+					}
+					return result
+				}
+			`,
+			fnName:  "modInLoop",
+			wantLen: 0,
+		},
+		"no findings for loop without division": {
+			// Pure computation loop, no division at all.
+			src: `
+				package example
+
+				func sumLoop(n int) int {
+					s := 0
+					for i := 0; i < n; i++ {
+						s += i
+					}
+					return s
+				}
+			`,
+			fnName:  "sumLoop",
+			wantLen: 0,
+		},
+		"worklist terminates on complex CFG": {
+			// Multiple branches inside a loop — exercises worklist convergence.
+			src: `
+				package example
+
+				func complexCFG(x, n int) int {
+					result := 0
+					for i := 1; i <= n; i++ {
+						if i > 10 {
+							result += x / i
+						} else {
+							result += x / (i + 1)
+						}
+					}
+					return result
+				}
+			`,
+			fnName:  "complexCFG",
+			wantLen: 0,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ssaPkg := buildSSA(t, tt.src)
+
+			var fn *ssa.Function
+			for _, member := range ssaPkg.Members {
+				f, ok := member.(*ssa.Function)
+				if !ok {
+					continue
+				}
+				if f.Name() == tt.fnName {
+					fn = f
+					break
+				}
+			}
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			require.Len(t, findings, tt.wantLen)
+
+			if tt.wantLen > 0 {
+				require.Equal(t, tt.severity, findings[0].Severity)
+				require.Equal(t, tt.message, findings[0].Message)
+			}
+		})
+	}
+}
+
 func TestAnalyzeEmptyBlocks(t *testing.T) {
 	t.Parallel()
 
