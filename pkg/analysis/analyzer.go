@@ -12,7 +12,10 @@ import (
 )
 
 type Analyzer struct {
-	state    map[*ssa.BasicBlock]map[ssa.Value]Interval
+	state          map[*ssa.BasicBlock]map[ssa.Value]Interval
+	summaries      map[*ssa.Function][]FunctionSummary
+	paramOverrides []Interval // If set, use these instead of type bounds.
+
 	findings []Finding
 	err      error
 }
@@ -35,6 +38,9 @@ const maxIterations = 1000
 
 func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 	a.state = make(map[*ssa.BasicBlock]map[ssa.Value]Interval)
+	if a.summaries == nil {
+		a.summaries = make(map[*ssa.Function][]FunctionSummary)
+	}
 
 	blocks, err := ReversePostOrder(fn)
 	if err != nil {
@@ -108,17 +114,21 @@ func (a *Analyzer) initBlockState(rpoIndex map[*ssa.BasicBlock]int, block *ssa.B
 	a.state[block] = make(map[ssa.Value]Interval)
 	if len(block.Preds) == 0 {
 		// Entry block. Initialize params with top
-		for _, param := range fn.Params {
-			// get the param type
-			kind, ok := param.Type().Underlying().(*types.Basic)
-			if ok {
-				a.state[block][param], ok = IntervalForType(kind.Kind())
-				if !ok {
+		for i, param := range fn.Params {
+			if a.paramOverrides != nil && i < len(a.paramOverrides) {
+				a.state[block][param] = a.paramOverrides[i]
+			} else {
+				// get the param type
+				kind, ok := param.Type().Underlying().(*types.Basic)
+				if ok {
+					a.state[block][param], ok = IntervalForType(kind.Kind())
+					if !ok {
+						a.state[block][param] = Top()
+					}
+				} else {
+					// Fallback to Top in case we couldn't get the basic type.
 					a.state[block][param] = Top()
 				}
-			} else {
-				// Fallback to Top in case we couldn't get the basic type.
-				a.state[block][param] = Top()
 			}
 		}
 	}
@@ -223,7 +233,76 @@ func (a *Analyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 		a.transferUnOp(block, v)
 	case *ssa.Convert:
 		a.transferConvert(block, v)
+	case *ssa.Call:
+		a.transferCall(block, v)
 	}
+}
+
+func (a *Analyzer) transferCall(block *ssa.BasicBlock, v *ssa.Call) {
+	// Get the callee
+	callee := v.Call.StaticCallee()
+	if callee == nil {
+		// A closure.
+		a.state[block][v] = Top()
+		return
+	}
+
+	args := make([]Interval, len(v.Call.Args))
+	for i, arg := range v.Call.Args {
+		args[i] = a.lookupInterval(block, arg)
+	}
+	summary := a.lookupOrComputeSummary(callee, args)
+	if len(summary.Returns) > 0 {
+		a.state[block][v] = summary.Returns[0]
+	} else {
+		a.state[block][v] = Top()
+	}
+
+}
+
+func (a *Analyzer) lookupOrComputeSummary(callee *ssa.Function, args []Interval) FunctionSummary {
+	summaries := a.summaries[callee]
+	// No need to handle not found here. Will simply not loop.
+	for _, summary := range summaries {
+		if summary.ArgsMatch(args) {
+			return summary
+		}
+	}
+	child := Analyzer{
+		summaries:      a.summaries, // Inherit summaries from callee
+		paramOverrides: args,
+	}
+	child.Analyze(callee)
+
+	returns := child.computeReturnIntervals(callee)
+	summary := FunctionSummary{Params: args, Returns: returns}
+	a.summaries[callee] = append(a.summaries[callee], summary)
+	return summary
+}
+
+func (a *Analyzer) computeReturnIntervals(fn *ssa.Function) []Interval {
+	var returns []Interval
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			ret, ok := instr.(*ssa.Return)
+			if !ok {
+				continue
+			}
+			// First return instruction — initialize the slice
+			if returns == nil {
+				returns = make([]Interval, len(ret.Results))
+				for i := range returns {
+					returns[i] = Bottom()
+				}
+			}
+			// Join each return value's interval
+			for i, result := range ret.Results {
+				returns[i] = returns[i].Join(a.lookupInterval(block,
+					result))
+			}
+		}
+	}
+	return returns
 }
 
 func (a *Analyzer) transferUnOp(block *ssa.BasicBlock, v *ssa.UnOp) {
