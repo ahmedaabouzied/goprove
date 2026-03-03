@@ -1659,10 +1659,9 @@ func TestAnalyzeParamTypeBounds(t *testing.T) {
 				{analysis.Bug, "proven integer overflow"},
 			},
 		},
-		"int8 param negation safe": {
+		"int8 param negation warns": {
 			// x is [-128, 127]. -x gives [-127, 128].
-			// Partially exceeds — Warning (because -(-128) = 128 overflows).
-			// But with bounded params this is a Warning not a false safe.
+			// 128 exceeds int8 max (127). Partial overlap — Warning.
 			src: `
 				package example
 
@@ -1671,7 +1670,13 @@ func TestAnalyzeParamTypeBounds(t *testing.T) {
 				}
 			`,
 			fnName:  "int8Neg",
-			wantLen: 0, // UnOp negation doesn't go through flagOverflow (only BinOp does)
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+			},
 		},
 
 		// === int16 params bounded to [-32768, 32767] ===

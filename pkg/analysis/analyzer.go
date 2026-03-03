@@ -253,6 +253,8 @@ func (a *Analyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction
 		a.flagOverflow(block, v)
 	case *ssa.Convert:
 		a.checkConvertOp(block, v)
+	case *ssa.UnOp:
+		a.checkUnOp(block, v)
 	}
 }
 
@@ -262,26 +264,17 @@ func (a *Analyzer) checkConvertOp(block *ssa.BasicBlock, v *ssa.Convert) {
 	if ok {
 		targetInterval, covered := IntervalForType(targetKind.Kind())
 		if covered {
-			if targetInterval.Contains(sourceInterval) {
-				return
-			}
+			a.checkOverflow(targetInterval, sourceInterval, v, "conversion")
+		}
+	}
+}
 
-			if targetInterval.Meet(sourceInterval).IsBottom {
-				// completely disjoint bounds and interval. Overflow detected
-				a.findings = append(a.findings, Finding{
-					v.Pos(),
-					"proven integer overflow in conversion",
-					Bug,
-				})
-				return
+func (a *Analyzer) checkUnOp(block *ssa.BasicBlock, v *ssa.UnOp) {
+	if current, ok := a.state[block][v]; ok {
+		if targetKind, ok := v.Type().Underlying().(*types.Basic); ok {
+			if bound, covered := IntervalForType(targetKind.Kind()); covered {
+				a.checkOverflow(bound, current, v, "negation")
 			}
-
-			// Partial overlap
-			a.findings = append(a.findings, Finding{
-				v.Pos(),
-				"possible integer overflow in conversion",
-				Warning,
-			})
 		}
 	}
 }
@@ -329,26 +322,29 @@ func (a *Analyzer) flagOverflow(block *ssa.BasicBlock, v *ssa.BinOp) {
 		return // Not a type we cover the boundary check of. Skip.
 	}
 	currentInterval := a.state[block][v]
+	a.checkOverflow(bound, currentInterval, v, "")
+}
 
-	if bound.Contains(currentInterval) {
+func (a *Analyzer) checkOverflow(bound, current Interval, v ssa.Instruction, context string) {
+	if bound.Contains(current) {
 		return
 	}
 
-	if bound.Meet(currentInterval).IsBottom {
-		// completely disjoint bounds and interval. Overflow detected
-		a.findings = append(a.findings, Finding{
-			v.Pos(),
-			"proven integer overflow",
-			Bug,
-		})
-		return
+	proven := bound.Meet(current).IsBottom
+	msg := "possible integer overflow"
+	severity := Warning
+	if proven {
+		msg = "proven integer overflow"
+		severity = Bug
+	}
+	if context != "" {
+		msg += " in " + context
 	}
 
-	// Partial overlap
 	a.findings = append(a.findings, Finding{
 		v.Pos(),
-		"possible integer overflow",
-		Warning,
+		msg,
+		severity,
 	})
 }
 
