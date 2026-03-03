@@ -3762,12 +3762,10 @@ func TestAnalyzeInterprocedural_DeadBranchPruning(t *testing.T) {
 			checks: nil, // check(5): x=5, not > 100, returns 1
 		},
 
-		"equality check, true branch not yet pruned": {
-			// Precision limitation: refineFromEquality sets x=[0,0] in the
-			// EQL/true branch without meeting against current [7,7].
-			// So the return 0 path is not detected as unreachable.
-			// TODO: fix refineFromEquality to use current.Meet(NewInterval(c,c))
-			// for EQL/true, which gives Meet([7,7],[0,0])=Bottom → prune.
+		"equality check, true branch pruned": {
+			// check(7): x=[7,7], condition x==0 → true branch gets
+			// Meet([7,7],[0,0])=Bottom (unreachable). Only false branch
+			// returns x=[7,7]. Division by 7 is safe.
 			src: `
 				package example
 
@@ -3783,12 +3781,7 @@ func TestAnalyzeInterprocedural_DeadBranchPruning(t *testing.T) {
 				}
 			`,
 			fnName: "caller",
-			checks: []struct {
-				severity analysis.Severity
-				message  string
-			}{
-				{analysis.Warning, "possible division by zero"},
-			},
+			checks: nil, // safe — dead branch pruned
 		},
 
 		"both branches reachable, returns joined": {

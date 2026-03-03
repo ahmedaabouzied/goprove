@@ -218,11 +218,11 @@ func (a *Analyzer) refineFromEquality(op token.Token, current Interval, constVal
 		if isTrueBranch {
 			refined = current.ExcludeZero()
 		} else {
-			refined = NewInterval(constVal, constVal)
+			refined = current.Meet(NewInterval(constVal, constVal))
 		}
 	case token.EQL: // y == 0
 		if isTrueBranch {
-			refined = NewInterval(constVal, constVal)
+			refined = current.Meet(NewInterval(constVal, constVal))
 		} else {
 			refined = current.ExcludeZero()
 		}

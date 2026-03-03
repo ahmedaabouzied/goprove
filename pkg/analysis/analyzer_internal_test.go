@@ -131,6 +131,94 @@ func TestRefineFromCondition_nilConst(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// refineFromEquality precision: Meet against current interval
+// ---------------------------------------------------------------------------
+// These tests verify that EQL/true and NEQ/false meet the constant against
+// the current interval. Without this, unreachable branches aren't detected.
+// e.g. if x=[7,7] and condition is x==0, the true branch should be Bottom
+// (unreachable), not [0,0].
+
+func TestRefineFromEquality_EQL_true_const_outside_range(t *testing.T) {
+	t.Parallel()
+
+	// x is known to be [7, 7]. Condition: x == 0, true branch.
+	// Since 0 is outside [7, 7], the true branch is unreachable → Bottom.
+	a := &Analyzer{}
+	current := NewInterval(7, 7)
+	refined := a.refineFromEquality(token.EQL, current, 0, true)
+
+	expected := current.Meet(NewInterval(0, 0)) // Should be Bottom
+	if !expected.IsBottom {
+		t.Fatalf("precondition: Meet([7,7], [0,0]) should be Bottom, got %+v", expected)
+	}
+	if !refined.IsBottom {
+		t.Errorf("EQL true with const outside range: expected Bottom, got %+v", refined)
+	}
+}
+
+func TestRefineFromEquality_EQL_true_const_inside_range(t *testing.T) {
+	t.Parallel()
+
+	// x is known to be [-5, 10]. Condition: x == 3, true branch.
+	// 3 is inside [-5, 10], so refined should be [3, 3].
+	a := &Analyzer{}
+	current := NewInterval(-5, 10)
+	refined := a.refineFromEquality(token.EQL, current, 3, true)
+
+	expected := NewInterval(3, 3)
+	if !refined.Equals(expected) {
+		t.Errorf("EQL true with const inside range: expected %+v, got %+v", expected, refined)
+	}
+}
+
+func TestRefineFromEquality_NEQ_false_const_outside_range(t *testing.T) {
+	t.Parallel()
+
+	// x is known to be [10, 20]. Condition: x != 5, false branch (x == 5).
+	// Since 5 is outside [10, 20], the false branch is unreachable → Bottom.
+	a := &Analyzer{}
+	current := NewInterval(10, 20)
+	refined := a.refineFromEquality(token.NEQ, current, 5, false)
+
+	expected := current.Meet(NewInterval(5, 5)) // Should be Bottom
+	if !expected.IsBottom {
+		t.Fatalf("precondition: Meet([10,20], [5,5]) should be Bottom, got %+v", expected)
+	}
+	if !refined.IsBottom {
+		t.Errorf("NEQ false with const outside range: expected Bottom, got %+v", refined)
+	}
+}
+
+func TestRefineFromEquality_NEQ_false_const_inside_range(t *testing.T) {
+	t.Parallel()
+
+	// x is known to be [0, 100]. Condition: x != 50, false branch (x == 50).
+	// 50 is inside [0, 100], so refined should be [50, 50].
+	a := &Analyzer{}
+	current := NewInterval(0, 100)
+	refined := a.refineFromEquality(token.NEQ, current, 50, false)
+
+	expected := NewInterval(50, 50)
+	if !refined.Equals(expected) {
+		t.Errorf("NEQ false with const inside range: expected %+v, got %+v", expected, refined)
+	}
+}
+
+func TestRefineFromEquality_EQL_true_wide_range_excludes_const(t *testing.T) {
+	t.Parallel()
+
+	// x is known to be [100, 200]. Condition: x == 0, true branch.
+	// 0 is far outside [100, 200] → Bottom.
+	a := &Analyzer{}
+	current := NewInterval(100, 200)
+	refined := a.refineFromEquality(token.EQL, current, 0, true)
+
+	if !refined.IsBottom {
+		t.Errorf("EQL true with const far outside range: expected Bottom, got %+v", refined)
+	}
+}
+
 func TestRefineFromCondition_unsupportedOp(t *testing.T) {
 	t.Parallel()
 
