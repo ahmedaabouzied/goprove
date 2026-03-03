@@ -16,6 +16,9 @@ type Analyzer struct {
 	summaries      map[*ssa.Function][]FunctionSummary
 	paramOverrides []Interval // If set, use these instead of type bounds.
 
+	callDepth    int
+	maxCallDepth int
+
 	findings []Finding
 	err      error
 }
@@ -40,6 +43,10 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 	a.state = make(map[*ssa.BasicBlock]map[ssa.Value]Interval)
 	if a.summaries == nil {
 		a.summaries = make(map[*ssa.Function][]FunctionSummary)
+	}
+
+	if a.maxCallDepth == 0 {
+		a.maxCallDepth = 10
 	}
 
 	blocks, err := ReversePostOrder(fn)
@@ -261,6 +268,10 @@ func (a *Analyzer) transferCall(block *ssa.BasicBlock, v *ssa.Call) {
 }
 
 func (a *Analyzer) lookupOrComputeSummary(callee *ssa.Function, args []Interval) FunctionSummary {
+	if a.callDepth >= a.maxCallDepth {
+		return FunctionSummary{Params: args, Returns: []Interval{Top()}}
+	}
+
 	summaries := a.summaries[callee]
 	// No need to handle not found here. Will simply not loop.
 	for _, summary := range summaries {
@@ -271,6 +282,8 @@ func (a *Analyzer) lookupOrComputeSummary(callee *ssa.Function, args []Interval)
 	child := Analyzer{
 		summaries:      a.summaries, // Inherit summaries from callee
 		paramOverrides: args,
+		callDepth:      a.callDepth + 1,
+		maxCallDepth:   a.maxCallDepth,
 	}
 	child.Analyze(callee)
 
