@@ -105,6 +105,21 @@ func (i Interval) Equals(other Interval) bool {
 	return i.Lo == other.Lo && i.Hi == other.Hi
 }
 
+func (i Interval) Contains(other Interval) bool {
+	switch {
+	case i.IsTop:
+		return true // Top contains everything.
+	case other.IsTop:
+		return i.IsTop // Nothing contains top unless it's top itself.
+	case i.IsBottom:
+		return false // Bottom contains nothing.
+	case other.IsBottom:
+		return true // Everything contains bottom
+	default:
+		return i.Lo <= other.Lo && i.Hi >= other.Hi
+	}
+}
+
 func (i Interval) Add(other Interval) Interval {
 	if res, ok := checkSpecial(i, other); ok {
 		return res

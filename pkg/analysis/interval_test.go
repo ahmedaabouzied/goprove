@@ -463,6 +463,122 @@ func TestWiden(t *testing.T) {
 	}
 }
 
+func TestContains(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want bool
+	}{
+		// Basic containment
+		{"identical ranges", NewInterval(1, 10), NewInterval(1, 10), true},
+		{"inner subset", NewInterval(1, 10), NewInterval(3, 7), true},
+		{"inner touches lo", NewInterval(1, 10), NewInterval(1, 5), true},
+		{"inner touches hi", NewInterval(1, 10), NewInterval(5, 10), true},
+		{"single point inside", NewInterval(1, 10), NewInterval(5, 5), true},
+		{"single point at lo", NewInterval(1, 10), NewInterval(1, 1), true},
+		{"single point at hi", NewInterval(1, 10), NewInterval(10, 10), true},
+		{"identical single point", NewInterval(5, 5), NewInterval(5, 5), true},
+
+		// Non-containment
+		{"disjoint right", NewInterval(1, 5), NewInterval(6, 10), false},
+		{"disjoint left", NewInterval(6, 10), NewInterval(1, 5), false},
+		{"overlap right", NewInterval(1, 5), NewInterval(3, 8), false},
+		{"overlap left", NewInterval(3, 8), NewInterval(1, 5), false},
+		{"inner wider", NewInterval(3, 7), NewInterval(1, 10), false},
+		{"single point outside right", NewInterval(1, 5), NewInterval(6, 6), false},
+		{"single point outside left", NewInterval(3, 10), NewInterval(2, 2), false},
+
+		// Negative ranges
+		{"negative contains subset", NewInterval(-10, -1), NewInterval(-7, -3), true},
+		{"negative identical", NewInterval(-5, -1), NewInterval(-5, -1), true},
+		{"negative not contained", NewInterval(-5, -3), NewInterval(-7, -1), false},
+
+		// Spanning zero
+		{"spans zero contains positive", NewInterval(-5, 10), NewInterval(1, 8), true},
+		{"spans zero contains negative", NewInterval(-10, 5), NewInterval(-8, -1), true},
+		{"spans zero contains zero", NewInterval(-5, 5), NewInterval(0, 0), true},
+		{"spans zero contains full span", NewInterval(-10, 10), NewInterval(-5, 5), true},
+		{"positive does not contain span", NewInterval(1, 10), NewInterval(-1, 5), false},
+
+		// Top cases
+		{"top contains normal", Top(), NewInterval(1, 10), true},
+		{"top contains single point", Top(), NewInterval(5, 5), true},
+		{"top contains negative", Top(), NewInterval(-100, -1), true},
+		{"top contains wide", Top(), NewInterval(math.MinInt64, math.MaxInt64), true},
+		{"top contains top", Top(), Top(), true},
+		{"top contains bottom", Top(), Bottom(), true},
+		{"normal does not contain top", NewInterval(1, 10), Top(), false},
+		{"wide does not contain top", NewInterval(math.MinInt64, math.MaxInt64), Top(), false},
+
+		// Bottom cases
+		{"normal contains bottom", NewInterval(1, 10), Bottom(), true},
+		{"single point contains bottom", NewInterval(5, 5), Bottom(), true},
+		{"bottom contains bottom", Bottom(), Bottom(), false},
+		{"bottom does not contain normal", Bottom(), NewInterval(1, 10), false},
+		{"bottom does not contain single", Bottom(), NewInterval(5, 5), false},
+		{"bottom does not contain top", Bottom(), Top(), false},
+
+		// Extreme values
+		{"full int64 range contains anything", NewInterval(math.MinInt64, math.MaxInt64), NewInterval(-100, 100), true},
+		{"full int64 range contains extremes", NewInterval(math.MinInt64, math.MaxInt64), NewInterval(math.MinInt64, math.MaxInt64), true},
+		{"narrow does not contain full range", NewInterval(-100, 100), NewInterval(math.MinInt64, math.MaxInt64), false},
+
+		// Boundary adjacency
+		{"off by one lo", NewInterval(2, 10), NewInterval(1, 10), false},
+		{"off by one hi", NewInterval(1, 9), NewInterval(1, 10), false},
+		{"off by one both", NewInterval(2, 9), NewInterval(1, 10), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Contains(tt.b)
+			require.Equal(t, tt.want, got, "%s: %+v.Contains(%+v) = %v, want %v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestContainsSymmetry(t *testing.T) {
+	t.Parallel()
+	// If A contains B and B contains A, they must be equal
+	pairs := []struct {
+		name string
+		a    Interval
+		b    Interval
+	}{
+		{"identical", NewInterval(1, 10), NewInterval(1, 10)},
+		{"top top", Top(), Top()},
+		{"single point", NewInterval(5, 5), NewInterval(5, 5)},
+	}
+	for _, tt := range pairs {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.True(t, tt.a.Contains(tt.b) && tt.b.Contains(tt.a), "mutual containment expected")
+			require.True(t, tt.a.Equals(tt.b), "mutual containment implies equality")
+		})
+	}
+
+	// If A strictly contains B, then B does NOT contain A
+	strict := []struct {
+		name string
+		a    Interval
+		b    Interval
+	}{
+		{"wider contains narrower", NewInterval(1, 10), NewInterval(3, 7)},
+		{"top contains normal", Top(), NewInterval(1, 10)},
+		{"normal contains bottom", NewInterval(1, 10), Bottom()},
+	}
+	for _, tt := range strict {
+		t.Run(tt.name+"_strict", func(t *testing.T) {
+			t.Parallel()
+			require.True(t, tt.a.Contains(tt.b), "A should contain B")
+			require.False(t, tt.b.Contains(tt.a), "B should NOT contain A")
+		})
+	}
+}
+
 func TestDiv(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

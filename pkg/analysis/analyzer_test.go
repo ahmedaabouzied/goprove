@@ -951,6 +951,966 @@ func TestAnalyzeLoopsAdvanced(t *testing.T) {
 	}
 }
 
+// TestAnalyzeOverflow tests integer overflow detection across all supported
+// narrow integer types (int8, int16, int32) and all arithmetic operators.
+func TestAnalyzeOverflow(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src     string
+		fnName  string
+		wantLen int
+		checks  []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		// === PROVEN OVERFLOW (Bug) — result entirely outside type bounds ===
+
+		"int8 add proven overflow": {
+			// 100 + 100 = [200, 200] entirely outside [-128, 127]
+			src: `
+				package example
+
+				func int8AddOverflow() int8 {
+					var a int8 = 100
+					var b int8 = 100
+					return a + b
+				}
+			`,
+			fnName:  "int8AddOverflow",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+		"int8 add proven negative overflow": {
+			// -100 + (-100) = [-200, -200] entirely outside [-128, 127]
+			src: `
+				package example
+
+				func int8AddNegOverflow() int8 {
+					var a int8 = -100
+					var b int8 = -100
+					return a + b
+				}
+			`,
+			fnName:  "int8AddNegOverflow",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+		"int8 mul proven overflow": {
+			// 50 * 3 = [150, 150] entirely outside [-128, 127]
+			src: `
+				package example
+
+				func int8MulOverflow() int8 {
+					var a int8 = 50
+					var b int8 = 3
+					return a * b
+				}
+			`,
+			fnName:  "int8MulOverflow",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+		"int8 sub proven overflow": {
+			// -100 - 100 = [-200, -200] entirely outside [-128, 127]
+			src: `
+				package example
+
+				func int8SubOverflow() int8 {
+					var a int8 = -100
+					var b int8 = 100
+					return a - b
+				}
+			`,
+			fnName:  "int8SubOverflow",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+		"int16 add proven overflow": {
+			// 30000 + 30000 = [60000, 60000] entirely outside [-32768, 32767]
+			src: `
+				package example
+
+				func int16AddOverflow() int16 {
+					var a int16 = 30000
+					var b int16 = 30000
+					return a + b
+				}
+			`,
+			fnName:  "int16AddOverflow",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+		"int32 mul proven overflow": {
+			// 100000 * 100000 = [10000000000, 10000000000] outside int32
+			src: `
+				package example
+
+				func int32MulOverflow() int32 {
+					var a int32 = 100000
+					var b int32 = 100000
+					return a * b
+				}
+			`,
+			fnName:  "int32MulOverflow",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+
+		// === POSSIBLE OVERFLOW (Warning) — result partially exceeds bounds ===
+
+		"int8 add param possible overflow": {
+			// x is Top for int8. x + 1 could overflow (if x = 127) or not.
+			// Result is Top, which is not contained in [-128, 127].
+			// Meet(Top, [-128, 127]) is [-128, 127] which is not Bottom,
+			// so it's a Warning not a Bug.
+			src: `
+				package example
+
+				func int8AddParam(x int8) int8 {
+					return x + 1
+				}
+			`,
+			fnName:  "int8AddParam",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+		"int8 mul param possible overflow": {
+			// x is Top for int8. x * 2 could overflow or not.
+			src: `
+				package example
+
+				func int8MulParam(x int8) int8 {
+					return x * 2
+				}
+			`,
+			fnName:  "int8MulParam",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+		"int8 sub param possible overflow": {
+			// x is Top for int8. x - 1 could underflow (if x = -128) or not.
+			src: `
+				package example
+
+				func int8SubParam(x int8) int8 {
+					return x - 1
+				}
+			`,
+			fnName:  "int8SubParam",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+		"int16 sub param possible overflow": {
+			src: `
+				package example
+
+				func int16SubParam(x int16) int16 {
+					return x - 1
+				}
+			`,
+			fnName:  "int16SubParam",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+		"int32 add param possible overflow": {
+			src: `
+				package example
+
+				func int32AddParam(x int32) int32 {
+					return x + 1
+				}
+			`,
+			fnName:  "int32AddParam",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+
+		// === SAFE — result fits within type bounds ===
+
+		"int8 add small constants safe": {
+			// 10 + 5 = [15, 15] within [-128, 127]
+			src: `
+				package example
+
+				func int8AddSafe() int8 {
+					var a int8 = 10
+					var b int8 = 5
+					return a + b
+				}
+			`,
+			fnName:  "int8AddSafe",
+			wantLen: 0,
+		},
+		"int8 sub small constants safe": {
+			// 10 - 5 = [5, 5] within [-128, 127]
+			src: `
+				package example
+
+				func int8SubSafe() int8 {
+					var a int8 = 10
+					var b int8 = 5
+					return a - b
+				}
+			`,
+			fnName:  "int8SubSafe",
+			wantLen: 0,
+		},
+		"int8 mul small constants safe": {
+			// 5 * 5 = [25, 25] within [-128, 127]
+			src: `
+				package example
+
+				func int8MulSafe() int8 {
+					var a int8 = 5
+					var b int8 = 5
+					return a * b
+				}
+			`,
+			fnName:  "int8MulSafe",
+			wantLen: 0,
+		},
+		"int8 negative result safe": {
+			// -50 + (-50) = [-100, -100] within [-128, 127]
+			src: `
+				package example
+
+				func int8NegSafe() int8 {
+					var a int8 = -50
+					var b int8 = -50
+					return a + b
+				}
+			`,
+			fnName:  "int8NegSafe",
+			wantLen: 0,
+		},
+		"int8 boundary safe max": {
+			// 100 + 27 = [127, 127] exactly at max int8 boundary
+			src: `
+				package example
+
+				func int8BoundarySafe() int8 {
+					var a int8 = 100
+					var b int8 = 27
+					return a + b
+				}
+			`,
+			fnName:  "int8BoundarySafe",
+			wantLen: 0,
+		},
+		"int8 boundary safe min": {
+			// -100 + (-28) = [-128, -128] exactly at min int8 boundary
+			src: `
+				package example
+
+				func int8BoundaryMinSafe() int8 {
+					var a int8 = -100
+					var b int8 = -28
+					return a + b
+				}
+			`,
+			fnName:  "int8BoundaryMinSafe",
+			wantLen: 0,
+		},
+		"int16 add small safe": {
+			// 100 + 200 = [300, 300] within [-32768, 32767]
+			src: `
+				package example
+
+				func int16AddSafe() int16 {
+					var a int16 = 100
+					var b int16 = 200
+					return a + b
+				}
+			`,
+			fnName:  "int16AddSafe",
+			wantLen: 0,
+		},
+		"int32 add small safe": {
+			// 1000 + 2000 = [3000, 3000] within int32 bounds
+			src: `
+				package example
+
+				func int32AddSafe() int32 {
+					var a int32 = 1000
+					var b int32 = 2000
+					return a + b
+				}
+			`,
+			fnName:  "int32AddSafe",
+			wantLen: 0,
+		},
+		"int8 div safe": {
+			// 100 / 10 = [10, 10] within [-128, 127]. Also no div-by-zero.
+			src: `
+				package example
+
+				func int8DivSafe() int8 {
+					var a int8 = 100
+					var b int8 = 10
+					return a / b
+				}
+			`,
+			fnName:  "int8DivSafe",
+			wantLen: 0,
+		},
+
+		// === UNTRACKED TYPES — no overflow findings ===
+
+		"int add no overflow finding": {
+			// int is untracked (platform-dependent), no overflow check.
+			src: `
+				package example
+
+				func intAdd(x, y int) int {
+					return x + y
+				}
+			`,
+			fnName:  "intAdd",
+			wantLen: 0,
+		},
+		"int64 add no overflow finding": {
+			// int64 is untracked (our internal representation), no overflow check.
+			src: `
+				package example
+
+				func int64Add(x, y int64) int64 {
+					return x + y
+				}
+			`,
+			fnName:  "int64Add",
+			wantLen: 0,
+		},
+
+		// === BRANCHING — overflow guarded by condition ===
+
+		"int8 add guarded by upper bound safe": {
+			// Params are initialized to type bounds: int8 x starts as [-128, 127].
+			// x < 100 refines to [-128, 99]. x + 27 gives [-101, 126].
+			// [-101, 126] fits within [-128, 127]. Safe.
+			src: `
+				package example
+
+				func int8Guarded(x int8) int8 {
+					if x < 100 {
+						return x + 27
+					}
+					return 0
+				}
+			`,
+			fnName:  "int8Guarded",
+			wantLen: 0,
+		},
+
+		// === OVERFLOW ON BOUNDARY — one past the limit ===
+
+		"int8 one past max is overflow": {
+			// 100 + 28 = [128, 128] just past max int8 (127)
+			src: `
+				package example
+
+				func int8OnePast() int8 {
+					var a int8 = 100
+					var b int8 = 28
+					return a + b
+				}
+			`,
+			fnName:  "int8OnePast",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+		"int8 one past min is overflow": {
+			// -100 + (-29) = [-129, -129] just past min int8 (-128)
+			src: `
+				package example
+
+				func int8OnePastMin() int8 {
+					var a int8 = -100
+					var b int8 = -29
+					return a + b
+				}
+			`,
+			fnName:  "int8OnePastMin",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+
+		// === DEFAULT BINOP — non-arithmetic ops produce no overflow ===
+
+		"int8 comparison produces no overflow": {
+			// Comparison BinOps (==, <, etc.) produce bool, not int8.
+			// No overflow check applies.
+			src: `
+				package example
+
+				func int8Cmp(x, y int8) bool {
+					return x < y
+				}
+			`,
+			fnName:  "int8Cmp",
+			wantLen: 0,
+		},
+
+		// === MULTIPLE FINDINGS — overflow + div-by-zero ===
+
+		"int8 div by zero and overflow": {
+			// Division by zero-valued var. The div result is Top (since divisor
+			// contains zero). Depending on type, overflow may also be flagged.
+			// This verifies both checks coexist without interfering.
+			src: `
+				package example
+
+				func int8DivByZero() int8 {
+					var a int8 = 100
+					var b int8 = 0
+					return a / b
+				}
+			`,
+			fnName:  "int8DivByZero",
+			wantLen: 2,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+
+		// === CHAINED ARITHMETIC ===
+
+		"int8 chained add overflow": {
+			// 50 + 50 = 100 (safe), then 100 + 50 = 150 (overflow)
+			src: `
+				package example
+
+				func int8ChainedAdd() int8 {
+					var a int8 = 50
+					var b int8 = 50
+					c := a + b
+					return c + b
+				}
+			`,
+			fnName:  "int8ChainedAdd",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+		"int8 chained mul overflow": {
+			// 10 * 10 = 100 (safe), then 100 * 2 = 200 (overflow)
+			src: `
+				package example
+
+				func int8ChainedMul() int8 {
+					var a int8 = 10
+					var b int8 = 10
+					c := a * b
+					var d int8 = 2
+					return c * d
+				}
+			`,
+			fnName:  "int8ChainedMul",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+
+		// === LOOP + OVERFLOW ===
+
+		"int8 loop counter overflow possible": {
+			// i starts at 1 and increments as int8. After widening,
+			// the add i + 1 has Top result which exceeds int8 bounds.
+			src: `
+				package example
+
+				func int8LoopOverflow(n int8) int8 {
+					var s int8 = 0
+					for i := int8(1); i < n; i++ {
+						s += i
+					}
+					return s
+				}
+			`,
+			fnName:  "int8LoopOverflow",
+			wantLen: 2,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ssaPkg := buildSSA(t, tt.src)
+
+			var fn *ssa.Function
+			for _, member := range ssaPkg.Members {
+				f, ok := member.(*ssa.Function)
+				if !ok {
+					continue
+				}
+				if f.Name() == tt.fnName {
+					fn = f
+					break
+				}
+			}
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			require.Len(t, findings, tt.wantLen, "unexpected number of findings")
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Equal(t, check.message, findings[i].Message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// TestAnalyzeParamTypeBounds verifies that function parameters are initialized
+// to their type's interval bounds rather than Top. This improves precision:
+// an int8 param starts as [-128, 127] instead of [MinInt64, MaxInt64].
+func TestAnalyzeParamTypeBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src     string
+		fnName  string
+		wantLen int
+		checks  []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		// === int8 params bounded to [-128, 127] ===
+
+		"int8 param add 1 safe": {
+			// x is [-128, 127]. x + 1 gives [-127, 128].
+			// [-127, 128] partially exceeds [-128, 127] at the top.
+			// This is a Warning — but NOT a false Bug.
+			src: `
+				package example
+
+				func int8Add1(x int8) int8 {
+					return x + 1
+				}
+			`,
+			fnName:  "int8Add1",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+		"int8 param guarded upper safe": {
+			// x is [-128, 127]. x < 100 refines to [-128, 99].
+			// x + 27 gives [-101, 126]. Fits in [-128, 127]. Safe.
+			src: `
+				package example
+
+				func int8GuardedUpper(x int8) int8 {
+					if x < 100 {
+						return x + 27
+					}
+					return 0
+				}
+			`,
+			fnName:  "int8GuardedUpper",
+			wantLen: 0,
+		},
+		"int8 param guarded lower safe": {
+			// x is [-128, 127]. x > -100 refines to [-99, 127].
+			// x - 28 gives [-127, 99]. Fits in [-128, 127]. Safe.
+			src: `
+				package example
+
+				func int8GuardedLower(x int8) int8 {
+					if x > -100 {
+						return x - 28
+					}
+					return 0
+				}
+			`,
+			fnName:  "int8GuardedLower",
+			wantLen: 0,
+		},
+		"int8 param guarded both sides safe": {
+			// x > -50 && x < 50 refines to [-49, 49].
+			// x * 2 gives [-98, 98]. Fits in [-128, 127]. Safe.
+			src: `
+				package example
+
+				func int8GuardedBoth(x int8) int8 {
+					if x > -50 {
+						if x < 50 {
+							return x * 2
+						}
+					}
+					return 0
+				}
+			`,
+			fnName:  "int8GuardedBoth",
+			wantLen: 0,
+		},
+		"int8 param guarded but still overflows": {
+			// x > 0 refines to [1, 127]. x + 127 gives [128, 254].
+			// Entirely outside [-128, 127]. Proven Bug.
+			src: `
+				package example
+
+				func int8GuardedOverflow(x int8) int8 {
+					if x > 0 {
+						return x + 127
+					}
+					return 0
+				}
+			`,
+			fnName:  "int8GuardedOverflow",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+		"int8 param negation safe": {
+			// x is [-128, 127]. -x gives [-127, 128].
+			// Partially exceeds — Warning (because -(-128) = 128 overflows).
+			// But with bounded params this is a Warning not a false safe.
+			src: `
+				package example
+
+				func int8Neg(x int8) int8 {
+					return -x
+				}
+			`,
+			fnName:  "int8Neg",
+			wantLen: 0, // UnOp negation doesn't go through flagOverflow (only BinOp does)
+		},
+
+		// === int16 params bounded to [-32768, 32767] ===
+
+		"int16 param guarded safe": {
+			// x is [-32768, 32767]. x < 32000 refines to [-32768, 31999].
+			// x + 700 gives [-32068, 32699]. Fits in [-32768, 32767]. Safe.
+			src: `
+				package example
+
+				func int16Guarded(x int16) int16 {
+					if x < 32000 {
+						return x + 700
+					}
+					return 0
+				}
+			`,
+			fnName:  "int16Guarded",
+			wantLen: 0,
+		},
+		"int16 param unguarded add warns": {
+			// x is [-32768, 32767]. x + 1 gives [-32767, 32768].
+			// Partially exceeds. Warning.
+			src: `
+				package example
+
+				func int16Add1(x int16) int16 {
+					return x + 1
+				}
+			`,
+			fnName:  "int16Add1",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+
+		// === int32 params bounded to [-2147483648, 2147483647] ===
+
+		"int32 param guarded safe": {
+			// x < 2000000000 refines to [-2147483648, 1999999999].
+			// x + 100000000 gives [-2047483648, 2099999999].
+			// int32 bounds: [-2147483648, 2147483647].
+			// Lo: -2147483648 <= -2047483648 ✓, Hi: 2147483647 >= 2099999999 ✓.
+			// Fully contained. Safe.
+			src: `
+				package example
+
+				func int32Guarded(x int32) int32 {
+					if x < 2000000000 {
+						return x + 100000000
+					}
+					return 0
+				}
+			`,
+			fnName:  "int32Guarded",
+			wantLen: 0,
+		},
+		"int32 param tightly guarded safe": {
+			// x < 1000 refines to [-2147483648, 999].
+			// x + 500 gives [-2147483148, 1499]. Fits in int32. Safe.
+			src: `
+				package example
+
+				func int32TightGuard(x int32) int32 {
+					if x < 1000 {
+						return x + 500
+					}
+					return 0
+				}
+			`,
+			fnName:  "int32TightGuard",
+			wantLen: 0,
+		},
+
+		// === int params stay Top (untracked) ===
+
+		"int param add no overflow": {
+			// int is untracked. Params start as Top. No overflow check fires.
+			src: `
+				package example
+
+				func intAdd(x int) int {
+					return x + 1
+				}
+			`,
+			fnName:  "intAdd",
+			wantLen: 0,
+		},
+
+		// === Division precision improved by type bounds ===
+
+		"int8 param div after guard safe": {
+			// x is [-128, 127]. x > 0 refines to [1, 127].
+			// Division by x is safe (no zero in [1, 127]).
+			src: `
+				package example
+
+				func int8DivGuarded(a, x int8) int8 {
+					if x > 0 {
+						return a / x
+					}
+					return 0
+				}
+			`,
+			fnName:  "int8DivGuarded",
+			wantLen: 0,
+		},
+		"int8 param div unguarded warns": {
+			// x is [-128, 127]. Contains zero → div-by-zero warning.
+			// Division result is Top (divisor contains zero) → exceeds int8 → overflow warning.
+			src: `
+				package example
+
+				func int8DivUnguarded(a, x int8) int8 {
+					return a / x
+				}
+			`,
+			fnName:  "int8DivUnguarded",
+			wantLen: 2,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+
+		// === Multiple params, mixed types ===
+
+		"mixed param types": {
+			// x is int (Top). int8(x) converts Top → Top (transferConvert
+			// propagates the source interval). Top / [1, 127] gives Top.
+			// Top doesn't fit int8 → overflow warning.
+			src: `
+				package example
+
+				func mixedParams(x int, y int8) int8 {
+					if y > 0 {
+						return int8(x) / y
+					}
+					return 0
+				}
+			`,
+			fnName:  "mixedParams",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+
+		// === Phi node merges with bounded params ===
+
+		"int8 phi merge stays bounded": {
+			// x is [-128, 127]. Both branches assign values within int8 range.
+			// Phi joins [1,1] and [2,2] → [1,2]. x + d gives [-127, 129].
+			// Partially exceeds. Warning.
+			src: `
+				package example
+
+				func int8PhiBounded(x int8, flag bool) int8 {
+					var d int8 = 1
+					if flag {
+						d = 2
+					}
+					return x + d
+				}
+			`,
+			fnName:  "int8PhiBounded",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+		"int8 phi merge guarded safe": {
+			// x < 100 refines to [-128, 99]. d is [1,2].
+			// x + d gives [-127, 101]. Fits in [-128, 127]. Safe.
+			src: `
+				package example
+
+				func int8PhiGuarded(x int8, flag bool) int8 {
+					var d int8 = 1
+					if flag {
+						d = 2
+					}
+					if x < 100 {
+						return x + d
+					}
+					return 0
+				}
+			`,
+			fnName:  "int8PhiGuarded",
+			wantLen: 0,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ssaPkg := buildSSA(t, tt.src)
+
+			var fn *ssa.Function
+			for _, member := range ssaPkg.Members {
+				f, ok := member.(*ssa.Function)
+				if !ok {
+					continue
+				}
+				if f.Name() == tt.fnName {
+					fn = f
+					break
+				}
+			}
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			require.Len(t, findings, tt.wantLen, "unexpected number of findings")
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Equal(t, check.message, findings[i].Message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
 func TestAnalyzeEmptyBlocks(t *testing.T) {
 	t.Parallel()
 

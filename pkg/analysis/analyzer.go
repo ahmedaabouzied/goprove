@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 	"go/token"
+	"go/types"
 	"maps"
 	"math"
 
@@ -108,7 +109,17 @@ func (a *Analyzer) initBlockState(rpoIndex map[*ssa.BasicBlock]int, block *ssa.B
 	if len(block.Preds) == 0 {
 		// Entry block. Initialize params with top
 		for _, param := range fn.Params {
-			a.state[block][param] = Top()
+			// get the param type
+			kind, ok := param.Type().Underlying().(*types.Basic)
+			if ok {
+				a.state[block][param], ok = IntervalForType(kind.Kind())
+				if !ok {
+					a.state[block][param] = Top()
+				}
+			} else {
+				// Fallback to Top in case we couldn't get the basic type.
+				a.state[block][param] = Top()
+			}
 		}
 	}
 
@@ -239,6 +250,7 @@ func (a *Analyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction
 			y := a.lookupInterval(block, v.Y)
 			a.flagDivisionByZero(v, y)
 		}
+		a.flagOverflow(block, v)
 	}
 }
 
@@ -273,6 +285,41 @@ func (a *Analyzer) refineFromComparison(op token.Token, current Interval, constV
 	return refined
 }
 
+func (a *Analyzer) flagOverflow(block *ssa.BasicBlock, v *ssa.BinOp) {
+	// Check for type bounds
+	basic, ok := v.Type().Underlying().(*types.Basic)
+	if !ok {
+		// not a basic type (struct, slice, etc...); skip
+		return
+	}
+	bound, covered := IntervalForType(basic.Kind())
+	if !covered {
+		return // Not a type we cover the boundary check of. Skip.
+	}
+	currentInterval := a.state[block][v]
+
+	if bound.Contains(currentInterval) {
+		return
+	}
+
+	if bound.Meet(currentInterval).IsBottom {
+		// completely disjoint bounds and interval. Overflow detected
+		a.findings = append(a.findings, Finding{
+			v.Pos(),
+			"proven integer overflow",
+			Bug,
+		})
+		return
+	}
+
+	// Partial overlap
+	a.findings = append(a.findings, Finding{
+		v.Pos(),
+		"possible integer overflow",
+		Warning,
+	})
+}
+
 func (a *Analyzer) transferBinOp(block *ssa.BasicBlock, v *ssa.BinOp) {
 	x := a.lookupInterval(block, v.X)
 	y := a.lookupInterval(block, v.Y)
@@ -291,6 +338,7 @@ func (a *Analyzer) transferBinOp(block *ssa.BasicBlock, v *ssa.BinOp) {
 		result = Top()
 	}
 	a.state[block][v] = result
+
 }
 
 func (a *Analyzer) transferPhi(block *ssa.BasicBlock, v *ssa.Phi) {
