@@ -2560,6 +2560,592 @@ func TestAnalyzeConvertOverflow(t *testing.T) {
 	}
 }
 
+func TestAnalyzeNegationOverflow(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src     string
+		fnName  string
+		wantLen int
+		checks  []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		// === Proven overflow ===
+
+		"negate int8 min constant proven overflow": {
+			// -(-128) = 128, but int8 max is 127. Entirely outside bounds.
+			src: `
+				package example
+
+				func negInt8Min() int8 {
+					var x int8 = -128
+					return -x
+				}
+			`,
+			fnName:  "negInt8Min",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in negation"},
+			},
+		},
+		"negate int16 min constant proven overflow": {
+			// -(-32768) = 32768, but int16 max is 32767.
+			src: `
+				package example
+
+				func negInt16Min() int16 {
+					var x int16 = -32768
+					return -x
+				}
+			`,
+			fnName:  "negInt16Min",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in negation"},
+			},
+		},
+		"negate int32 min constant proven overflow": {
+			// -(-2147483648) = 2147483648, but int32 max is 2147483647.
+			src: `
+				package example
+
+				func negInt32Min() int32 {
+					var x int32 = -2147483648
+					return -x
+				}
+			`,
+			fnName:  "negInt32Min",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in negation"},
+			},
+		},
+
+		// === Possible overflow (param full range) ===
+
+		"negate int8 param possible overflow": {
+			// x is [-128, 127]. -x gives [-127, 128]. 128 > 127. Partial overlap.
+			src: `
+				package example
+
+				func negInt8Param(x int8) int8 {
+					return -x
+				}
+			`,
+			fnName:  "negInt8Param",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+			},
+		},
+		"negate int16 param possible overflow": {
+			// x is [-32768, 32767]. -x gives [-32767, 32768]. Partial overlap.
+			src: `
+				package example
+
+				func negInt16Param(x int16) int16 {
+					return -x
+				}
+			`,
+			fnName:  "negInt16Param",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+			},
+		},
+		"negate int32 param possible overflow": {
+			// x is [-2147483648, 2147483647]. -x gives [-2147483647, 2147483648]. Partial overlap.
+			src: `
+				package example
+
+				func negInt32Param(x int32) int32 {
+					return -x
+				}
+			`,
+			fnName:  "negInt32Param",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+			},
+		},
+
+		// === Safe: constants that fit ===
+
+		"negate positive int8 constant safe": {
+			// -(127) = -127. Fits in [-128, 127].
+			src: `
+				package example
+
+				func negPos127() int8 {
+					var x int8 = 127
+					return -x
+				}
+			`,
+			fnName:  "negPos127",
+			wantLen: 0,
+		},
+		"negate negative int8 constant safe": {
+			// -(-127) = 127. Fits in [-128, 127].
+			src: `
+				package example
+
+				func negNeg127() int8 {
+					var x int8 = -127
+					return -x
+				}
+			`,
+			fnName:  "negNeg127",
+			wantLen: 0,
+		},
+		"negate zero int8 safe": {
+			// -(0) = 0. Always safe.
+			src: `
+				package example
+
+				func negZero() int8 {
+					var x int8 = 0
+					return -x
+				}
+			`,
+			fnName:  "negZero",
+			wantLen: 0,
+		},
+		"negate one int8 safe": {
+			// -(1) = -1. Safe.
+			src: `
+				package example
+
+				func negOne() int8 {
+					var x int8 = 1
+					return -x
+				}
+			`,
+			fnName:  "negOne",
+			wantLen: 0,
+		},
+		"negate positive int16 constant safe": {
+			// -(100) = -100. Fits in int16.
+			src: `
+				package example
+
+				func negPos100() int16 {
+					var x int16 = 100
+					return -x
+				}
+			`,
+			fnName:  "negPos100",
+			wantLen: 0,
+		},
+		"negate int32 small constant safe": {
+			// -(42) = -42. Fits in int32.
+			src: `
+				package example
+
+				func negSmall32() int32 {
+					var x int32 = 42
+					return -x
+				}
+			`,
+			fnName:  "negSmall32",
+			wantLen: 0,
+		},
+
+		// === Safe: guarded range ===
+
+		"negate int8 param guarded above min safe": {
+			// x > -128 narrows to [-127, 127]. -x gives [-127, 127]. Safe.
+			src: `
+				package example
+
+				func negGuarded(x int8) int8 {
+					if x > -128 {
+						return -x
+					}
+					return 0
+				}
+			`,
+			fnName:  "negGuarded",
+			wantLen: 0,
+		},
+		"negate int8 param guarded positive safe": {
+			// x > 0 narrows to [1, 127]. -x gives [-127, -1]. Safe.
+			src: `
+				package example
+
+				func negGuardedPos(x int8) int8 {
+					if x > 0 {
+						return -x
+					}
+					return 0
+				}
+			`,
+			fnName:  "negGuardedPos",
+			wantLen: 0,
+		},
+		"negate int16 param guarded above min safe": {
+			// x > -32768 narrows to [-32767, 32767]. -x gives [-32767, 32767]. Safe.
+			src: `
+				package example
+
+				func negGuarded16(x int16) int16 {
+					if x > -32768 {
+						return -x
+					}
+					return 0
+				}
+			`,
+			fnName:  "negGuarded16",
+			wantLen: 0,
+		},
+		"negate int32 param guarded above min safe": {
+			// x > -2147483648 narrows to [-2147483647, 2147483647]. -x gives [-2147483647, 2147483647]. Safe.
+			src: `
+				package example
+
+				func negGuarded32(x int32) int32 {
+					if x > -2147483648 {
+						return -x
+					}
+					return 0
+				}
+			`,
+			fnName:  "negGuarded32",
+			wantLen: 0,
+		},
+
+		// === Untracked types: no findings ===
+
+		"negate int param untracked": {
+			// int is not tracked for overflow. No findings.
+			src: `
+				package example
+
+				func negInt(x int) int {
+					return -x
+				}
+			`,
+			fnName:  "negInt",
+			wantLen: 0,
+		},
+		"negate int64 param untracked": {
+			// int64 is not tracked. No findings.
+			src: `
+				package example
+
+				func negInt64(x int64) int64 {
+					return -x
+				}
+			`,
+			fnName:  "negInt64",
+			wantLen: 0,
+		},
+
+		// === Boundary: one past min ===
+
+		"negate int8 one past min safe": {
+			// x = -127. -(-127) = 127. Fits in int8.
+			src: `
+				package example
+
+				func negOnePastMin8() int8 {
+					var x int8 = -127
+					return -x
+				}
+			`,
+			fnName:  "negOnePastMin8",
+			wantLen: 0,
+		},
+		"negate int16 one past min safe": {
+			// x = -32767. -(-32767) = 32767. Fits in int16.
+			src: `
+				package example
+
+				func negOnePastMin16() int16 {
+					var x int16 = -32767
+					return -x
+				}
+			`,
+			fnName:  "negOnePastMin16",
+			wantLen: 0,
+		},
+
+		// === Negation then arithmetic ===
+
+		"negate then add overflow": {
+			// x is int8 param [-128, 127]. -x gives [-127, 128].
+			// Negation warns. Then -x + 1 gives [-126, 129]. Addition also warns.
+			src: `
+				package example
+
+				func negThenAdd(x int8) int8 {
+					return -x + 1
+				}
+			`,
+			fnName:  "negThenAdd",
+			wantLen: 2,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+		"negate guarded then add safe": {
+			// x > -128 → [-127, 127]. -x → [-127, 127]. Safe negation.
+			// -x + 1 → [-126, 128]. Partially exceeds. Addition warns.
+			src: `
+				package example
+
+				func negGuardedThenAdd(x int8) int8 {
+					if x > -128 {
+						return -x + 1
+					}
+					return 0
+				}
+			`,
+			fnName:  "negGuardedThenAdd",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+			},
+		},
+
+		// === Negation then conversion ===
+
+		"negate int16 param then convert to int8 both warn": {
+			// x is int16 [-32768, 32767]. -x gives [-32767, 32768].
+			// Negation warns (partial overlap with int16).
+			// Convert to int8: [-32767, 32768] vs [-128, 127]. Partial overlap. Warns.
+			src: `
+				package example
+
+				func negThenConvert(x int16) int8 {
+					return int8(-x)
+				}
+			`,
+			fnName:  "negThenConvert",
+			wantLen: 2,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+
+		// === Double negation ===
+
+		"double negate int8 param warns once": {
+			// x is [-128, 127]. -x → [-127, 128]. First negation warns.
+			// -(-x) → [-128, 127]. Second negation is safe (fits in int8).
+			src: `
+				package example
+
+				func doubleNeg(x int8) int8 {
+					y := -x
+					return -y
+				}
+			`,
+			fnName:  "doubleNeg",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+			},
+		},
+
+		// === Phi then negate ===
+
+		"phi merge then negate safe": {
+			// if cond: x = 10, else: x = -10. Phi gives [-10, 10].
+			// -x gives [-10, 10]. Safe for int8.
+			src: `
+				package example
+
+				func phiThenNeg(cond bool) int8 {
+					var x int8
+					if cond {
+						x = 10
+					} else {
+						x = -10
+					}
+					return -x
+				}
+			`,
+			fnName:  "phiThenNeg",
+			wantLen: 0,
+		},
+		"phi merge then negate warns": {
+			// if cond: x = 127, else: x = -128. Phi gives [-128, 127].
+			// -x gives [-127, 128]. Partial overlap. Warns.
+			src: `
+				package example
+
+				func phiThenNegWarn(cond bool) int8 {
+					var x int8
+					if cond {
+						x = 127
+					} else {
+						x = -128
+					}
+					return -x
+				}
+			`,
+			fnName:  "phiThenNegWarn",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+			},
+		},
+
+		// === Negation in branch ===
+
+		"negate in true branch guarded safe": {
+			// In true branch: x >= 0 → [0, 127]. -x → [-127, 0]. Safe.
+			src: `
+				package example
+
+				func negInBranch(x int8) int8 {
+					if x >= 0 {
+						return -x
+					}
+					return x
+				}
+			`,
+			fnName:  "negInBranch",
+			wantLen: 0,
+		},
+		"negate in false branch unguarded warns": {
+			// In false branch: x < 0 → [-128, -1]. -x → [1, 128]. 128 > 127. Warns.
+			src: `
+				package example
+
+				func negFalseBranch(x int8) int8 {
+					if x >= 0 {
+						return x
+					}
+					return -x
+				}
+			`,
+			fnName:  "negFalseBranch",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+			},
+		},
+
+		// === Absolute value pattern ===
+
+		"abs pattern on int8 warns": {
+			// if x < 0: return -x (x is [-128, -1], -x is [1, 128]. Warns.)
+			// else: return x
+			src: `
+				package example
+
+				func absInt8(x int8) int8 {
+					if x < 0 {
+						return -x
+					}
+					return x
+				}
+			`,
+			fnName:  "absInt8",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in negation"},
+			},
+		},
+		"abs pattern on int8 guarded safe": {
+			// if x < 0 && x > -128: return -x (x is [-127, -1], -x is [1, 127]. Safe.)
+			// Needs two guards. Our analyzer refines per-predecessor, so
+			// x < 0 gives [-128, -1], then x > -128 gives [-127, -1].
+			// -x gives [1, 127]. Safe.
+			src: `
+				package example
+
+				func absInt8Safe(x int8) int8 {
+					if x > -128 {
+						if x < 0 {
+							return -x
+						}
+					}
+					return x
+				}
+			`,
+			fnName:  "absInt8Safe",
+			wantLen: 0,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ssaPkg := buildSSA(t, tt.src)
+
+			var fn *ssa.Function
+			for _, member := range ssaPkg.Members {
+				f, ok := member.(*ssa.Function)
+				if !ok {
+					continue
+				}
+				if f.Name() == tt.fnName {
+					fn = f
+					break
+				}
+			}
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			require.Len(t, findings, tt.wantLen, "unexpected number of findings")
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Equal(t, check.message, findings[i].Message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
 func TestAnalyzeEmptyBlocks(t *testing.T) {
 	t.Parallel()
 
