@@ -296,6 +296,9 @@ func (a *Analyzer) lookupOrComputeSummary(callee *ssa.Function, args []Interval)
 func (a *Analyzer) computeReturnIntervals(fn *ssa.Function) []Interval {
 	var returns []Interval
 	for _, block := range fn.Blocks {
+		if !a.isBlockReachable(block) {
+			continue
+		}
 		for _, instr := range block.Instrs {
 			ret, ok := instr.(*ssa.Return)
 			if !ok {
@@ -490,6 +493,20 @@ func (a *Analyzer) flagDivisionByZero(v *ssa.BinOp, divisor Interval) {
 		Message:  "possible division by zero",
 		Severity: Warning,
 	})
+}
+
+func (a *Analyzer) isBlockReachable(block *ssa.BasicBlock) bool {
+	blockState, ok := a.state[block]
+	if !ok {
+		return false
+	}
+
+	for _, iv := range blockState {
+		if iv.IsBottom {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *Analyzer) lookupInterval(block *ssa.BasicBlock, v ssa.Value) Interval {
