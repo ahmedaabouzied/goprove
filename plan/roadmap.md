@@ -16,7 +16,7 @@ Summary: 1 proven bug, 1 warning, 342 proven safe
 | Phase | Name | What It Proves | Status |
 |-------|------|----------------|--------|
 | 0 | Foundation | Nothing yet — understand SSA | ✅ Complete |
-| 1 | Integer Intervals | Division by zero, integer overflow | 🟡 In progress |
+| 1 | Integer Intervals | Division by zero, integer overflow | ✅ Complete |
 | 2 | Nil Analysis | Nil pointer dereference | 🔲 Not started |
 | 3 | Slice Bounds | Index out of bounds | 🔲 Not started |
 | 4 | Interprocedural | Cross-function bugs (all above) | 🔲 Not started |
@@ -28,6 +28,7 @@ Summary: 1 proven bug, 1 warning, 342 proven safe
 
 - **M1**: First SSA dump of a real package (Phase 0) ✅
 - **M2**: First proven division-by-zero bug found (Phase 1) ✅
+- **M2.5**: First proven integer overflow bug found (Phase 1) ✅
 - **M3**: First proven nil dereference found (Phase 2)
 - **M4**: First cross-function bug found (Phase 4)
 - **M5**: Open source release with CI integration (Phase 7)

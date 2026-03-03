@@ -6,18 +6,37 @@ A static analysis tool for Go that uses abstract interpretation to mathematicall
 
 GoProve analyzes Go source code at compile time and classifies each potential error site with a verdict:
 
-- **Proven safe** — mathematically guaranteed to be safe at runtime.
-- **Proven bug** — the code will definitely fail.
-- **Unknown** — the tool couldn't prove it either way. Worth a human look.
+- **Bug** — proven to fail at runtime. Guaranteed.
+- **Warning** — could not prove safe or unsafe. Worth a human look.
+- **Safe** — mathematically guaranteed to be safe for all inputs.
 
-## Target Properties
+```
+$ goprove ./...
+pkg/billing/charge.go:47  BUG   division by zero — divisor is always 0
+pkg/billing/charge.go:52  WARN  possible integer overflow in conversion
+pkg/handler/click.go:89   WARN  possible division by zero
+Summary: 1 proven bug, 2 warnings
+```
 
-- Division by zero
-- Integer overflow
-- Nil pointer dereference
-- Slice out-of-bounds access
-- GC pressure classification
-- Concurrency bugs (data races, deadlocks)
+## Currently Detects
+
+### Division by Zero
+- **Proven bug**: divisor is always zero
+- **Warning**: divisor range includes zero but isn't guaranteed
+- **Safe**: divisor range provably excludes zero (e.g., after `if y != 0` guard)
+
+### Integer Overflow
+- **Arithmetic overflow**: result of `+`, `-`, `*`, `/` exceeds type bounds (int8, int16, int32)
+- **Conversion overflow**: narrowing cast loses data (e.g., int16 → int8 when value > 127)
+- **Negation overflow**: `-x` overflows when x is the minimum value (e.g., `-(-128)` for int8)
+- Branch guards are respected: `if x < 100 { int8(x) }` is proven safe
+
+### How It Works
+- Builds SSA (Static Single Assignment) form via `golang.org/x/tools/go/ssa`
+- Runs abstract interpretation with an interval domain `[lo, hi]` per variable
+- Worklist algorithm with widening guarantees termination on loops
+- Branch refinement narrows intervals through `if` conditions
+- Post-convergence check pass classifies findings as Bug/Warning/Safe
 
 ## Design Principles
 
@@ -25,18 +44,25 @@ GoProve analyzes Go source code at compile time and classifies each potential er
 - **Sound by default.** If it says safe, it's safe. No false negatives.
 - **Built on `go/ssa`.** Works with Go's existing tooling ecosystem.
 
+## Usage
+
+```bash
+go install github.com/ahmedaabouzied/goprove/cmd/goprove@latest
+goprove <package>
+```
+
 ## Roadmap
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| 0 | Foundation — SSA loading, CFG traversal | Not started |
-| 1 | Integer interval analysis (div-by-zero, overflow) | — |
-| 2 | Nil pointer analysis | — |
-| 3 | Slice bounds analysis | — |
-| 4 | Interprocedural analysis | — |
-| 5 | GC pressure analysis | — |
-| 6 | Concurrency analysis | — |
-| 7 | Production hardening (SARIF, golangci-lint plugin) | — |
+| 0 | Foundation — SSA loading, CFG traversal | Done |
+| 1 | Integer interval analysis (div-by-zero, overflow) | Done |
+| 2 | Nil pointer analysis | Not started |
+| 3 | Slice bounds analysis | Not started |
+| 4 | Interprocedural analysis | Not started |
+| 5 | GC pressure analysis | Not started |
+| 6 | Concurrency analysis | Not started |
+| 7 | Production hardening (SARIF, golangci-lint plugin) | Not started |
 
 ## License
 

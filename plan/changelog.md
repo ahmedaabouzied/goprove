@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-03-03 — Integer Overflow Detection (Task 1.5 + 1.6)
+
+- Implemented `IntervalForType` in `bounds.go`: maps `types.BasicKind` to type bounds for int8, int16, int32
+- Implemented `Contains` method on `Interval` for checking if one interval is fully contained in another
+- Implemented `flagOverflow`: checks BinOp result intervals against type bounds post-convergence
+- Implemented `checkConvertOp`: detects narrowing overflow in type conversions (e.g. int16→int8)
+- Implemented `checkUnOp`: detects negation overflow (e.g. `-(-128)` = 128 overflows int8)
+- Extracted `checkOverflow` shared helper for Bug/Warning/Safe classification with context-aware messages
+- Fixed param initialization: entry block params now start at type bounds via `IntervalForType` instead of Top
+- Three-way classification: Bug (result entirely outside bounds), Warning (partial overlap), Safe (contained)
+- Distinct messages per check: "integer overflow", "integer overflow in conversion", "integer overflow in negation"
+- int64, int, uint types deliberately untracked (internal representation is int64, so overflow is undetectable)
+- 20 bounds tests, 47 Contains tests, 30 overflow tests, 16 param bounds tests, 32 conversion tests, 30 negation tests
+- Total: 175+ new test cases, all passing
+
 ## 2026-03-02 — Worklist Algorithm + Widening
 
 - Implemented worklist algorithm with change detection (copyBlockState, stateEqual using maps.Copy/maps.Equal)

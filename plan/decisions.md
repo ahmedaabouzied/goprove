@@ -135,3 +135,36 @@
 - NASA P10 Rule 1 prohibits recursion (call graph must be acyclic)
 - Explicit stack avoids stack overflow on deep CFGs
 - Same time complexity, slightly more code but fully controllable
+
+---
+
+## ADR-009: Only track signed int8/int16/int32 for overflow
+
+**Date**: 2026-03-03
+**Status**: Accepted
+
+**Context**: The interval domain uses int64 internally. We need to decide which types to check for overflow.
+
+**Decision**: Only check overflow for int8, int16, and int32. Return `false` for int64, int, and all unsigned types.
+
+**Rationale**:
+- int64 overflow is undetectable when our internal representation is int64 (the computation itself would overflow)
+- int is platform-dependent (32 or 64 bit) and typically 64-bit — same problem
+- Unsigned integers have different overflow semantics (wrapping is defined behavior in Go) and require separate treatment
+- int8/int16/int32 are the types where silent overflow is most dangerous and most detectable
+
+---
+
+## ADR-010: Separate overflow messages per instruction kind
+
+**Date**: 2026-03-03
+**Status**: Accepted
+
+**Context**: Overflow can happen in BinOp (arithmetic), Convert (narrowing), and UnOp (negation). Should they share a message?
+
+**Decision**: Use distinct messages with a context suffix: "integer overflow", "integer overflow in conversion", "integer overflow in negation".
+
+**Rationale**:
+- Users need to know *what kind* of overflow to fix it
+- Arithmetic overflow (fix: widen the type or add bounds checks) differs from conversion overflow (fix: check before casting) differs from negation overflow (fix: guard against MinInt)
+- Shared `checkOverflow` helper takes a context string, keeping code DRY while messages are specific
