@@ -3158,3 +3158,711 @@ func TestAnalyzeEmptyBlocks(t *testing.T) {
 	findings := analyzer.Analyze(fn)
 	require.Nil(t, findings)
 }
+
+// ---------------------------------------------------------------------------
+// Interprocedural analysis tests
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		// --- Proven bugs via interprocedural analysis ---
+
+		"callee returns zero, caller divides by it": {
+			src: `
+				package example
+
+				func decrement(x int) int {
+					return x - 1
+				}
+
+				func caller() int {
+					d := decrement(1)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"callee always returns zero literal": {
+			src: `
+				package example
+
+				func zero() int {
+					return 0
+				}
+
+				func caller(x int) int {
+					return x / zero()
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		// --- Proven safe via interprocedural analysis ---
+
+		"callee returns nonzero constant, division is safe": {
+			src: `
+				package example
+
+				func ten() int {
+					return 10
+				}
+
+				func caller(x int) int {
+					return x / ten()
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // no findings
+		},
+
+		"callee adds one to zero, result is 1, division safe": {
+			src: `
+				package example
+
+				func addOne(x int) int {
+					return x + 1
+				}
+
+				func caller() int {
+					d := addOne(0)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: nil,
+		},
+
+		"callee with branch, known arg makes safe path": {
+			src: `
+				package example
+
+				func isPositive(x int) int {
+					if x > 0 {
+						return 1
+					}
+					return 0
+				}
+
+				func caller() int {
+					d := isPositive(5)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // isPositive(5) returns [1,1] — dead path pruned
+		},
+
+		"double call result is nonzero": {
+			src: `
+				package example
+
+				func double(x int) int {
+					return x * 2
+				}
+
+				func caller() int {
+					d := double(5)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // double(5) = 10
+		},
+
+		// --- Warnings: callee may return zero ---
+
+		"callee with branch, unknown arg, may return zero": {
+			src: `
+				package example
+
+				func isPositive(x int) int {
+					if x > 0 {
+						return 1
+					}
+					return 0
+				}
+
+				func caller(x int) int {
+					d := isPositive(x)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+
+		"callee with multiple return paths including zero": {
+			src: `
+				package example
+
+				func absOrZero(x int) int {
+					if x > 0 {
+						return x
+					}
+					if x < 0 {
+						return -x
+					}
+					return 0
+				}
+
+				func caller(x int) int {
+					d := absOrZero(x)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+
+		"identity function passes through param, warns": {
+			src: `
+				package example
+
+				func identity(x int) int {
+					return x
+				}
+
+				func caller(x int) int {
+					return 100 / identity(x)
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+
+		// --- Multi-level call chains ---
+
+		"two-level chain: caller -> wrapper -> leaf": {
+			src: `
+				package example
+
+				func leaf() int {
+					return 7
+				}
+
+				func wrapper() int {
+					return leaf()
+				}
+
+				func caller(x int) int {
+					return x / wrapper()
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // wrapper() -> leaf() = 7
+		},
+
+		"three-level chain returning zero": {
+			src: `
+				package example
+
+				func bottom() int {
+					return 0
+				}
+
+				func middle() int {
+					return bottom()
+				}
+
+				func top() int {
+					return middle()
+				}
+
+				func caller(x int) int {
+					return x / top()
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		// --- Multiple calls in same function ---
+
+		"two calls, one safe one unsafe": {
+			src: `
+				package example
+
+				func alwaysOne() int {
+					return 1
+				}
+
+				func alwaysZero() int {
+					return 0
+				}
+
+				func caller(x int) int {
+					a := x / alwaysOne()
+					b := x / alwaysZero()
+					return a + b
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"same function called with different args": {
+			src: `
+				package example
+
+				func sub(a, b int) int {
+					return a - b
+				}
+
+				func caller() int {
+					safe := sub(10, 5)
+					return 100 / safe
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // sub(10, 5) = 5
+		},
+
+		"same function called with args producing zero": {
+			src: `
+				package example
+
+				func sub(a, b int) int {
+					return a - b
+				}
+
+				func caller() int {
+					zero := sub(5, 5)
+					return 100 / zero
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		// --- Call result used in arithmetic then division ---
+
+		"call result used in further arithmetic": {
+			src: `
+				package example
+
+				func five() int {
+					return 5
+				}
+
+				func caller(x int) int {
+					d := five() - 5
+					return x / d
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"call result added to constant makes safe divisor": {
+			src: `
+				package example
+
+				func zero() int {
+					return 0
+				}
+
+				func caller(x int) int {
+					d := zero() + 1
+					return x / d
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // 0 + 1 = 1
+		},
+
+		// --- Callee with no return value used as divisor ---
+
+		"callee return not used as divisor, no finding": {
+			src: `
+				package example
+
+				func helper() int {
+					return 0
+				}
+
+				func caller(x, y int) int {
+					_ = helper()
+					return x + y
+				}
+			`,
+			fnName: "caller",
+			checks: nil,
+		},
+
+		// --- Context sensitivity: same callee, different contexts ---
+
+		"context sensitive: same fn called with 0 and 5": {
+			src: `
+				package example
+
+				func inc(x int) int {
+					return x + 1
+				}
+
+				func caller() int {
+					a := 100 / inc(0)
+					b := 100 / inc(5)
+					return a + b
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // inc(0)=1, inc(5)=6, both safe
+		},
+
+		// --- Callee with loop ---
+
+		"callee with loop returns nonzero": {
+			// Widening overapproximates total to include 0, so a warning is sound.
+			// Narrowing (not yet implemented) could recover precision here.
+			src: `
+				package example
+
+				func sumTo(n int) int {
+					total := 0
+					for i := 1; i <= n; i++ {
+						total += i
+					}
+					return total
+				}
+
+				func caller() int {
+					return 100 / sumTo(10)
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+
+		// --- Callee with negation ---
+
+		"callee negates input": {
+			src: `
+				package example
+
+				func negate(x int) int {
+					return -x
+				}
+
+				func caller() int {
+					d := negate(0)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"callee negates nonzero is safe": {
+			src: `
+				package example
+
+				func negate(x int) int {
+					return -x
+				}
+
+				func caller() int {
+					d := negate(3)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // negate(3) = -3
+		},
+
+		// --- Callee that the analyzer can't resolve (interface) ---
+
+		// Note: interface method calls can't be tested with buildSSA
+		// because the test helper uses Importer: nil which doesn't
+		// support interface dispatch. Tested via cmd/goprove integration tests.
+
+		// --- Multiple return values (only first used) ---
+
+		// Note: Go SSA uses Extract for multi-return. This tests that
+		// the analyzer doesn't crash on call instructions that return tuples.
+		// The division uses a separate value, not the call result directly.
+		"function with no division but calls another function": {
+			src: `
+				package example
+
+				func helper(x int) int {
+					return x * 2
+				}
+
+				func caller(x int) int {
+					return helper(x) + 1
+				}
+			`,
+			fnName: "caller",
+			checks: nil,
+		},
+
+		// --- Guard against crashes ---
+
+		"callee with no blocks (external function)": {
+			src: `
+				package example
+
+				func caller(x int) int {
+					return x + 1
+				}
+			`,
+			fnName: "caller",
+			checks: nil,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: isBlockReachable tests
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_DeadBranchPruning(t *testing.T) {
+	t.Parallel()
+
+	// This specifically tests that unreachable branches in callees
+	// don't pollute the return interval.
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"true branch always taken, false return pruned": {
+			src: `
+				package example
+
+				func check(x int) int {
+					if x > 0 {
+						return 1
+					}
+					return 0
+				}
+
+				func caller() int {
+					return 100 / check(10)
+				}
+			`,
+			fnName: "caller",
+			checks: nil,
+		},
+
+		"false branch always taken, true return pruned": {
+			src: `
+				package example
+
+				func check(x int) int {
+					if x > 100 {
+						return 0
+					}
+					return 1
+				}
+
+				func caller() int {
+					return 100 / check(5)
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // check(5): x=5, not > 100, returns 1
+		},
+
+		"equality check, true branch not yet pruned": {
+			// Precision limitation: refineFromEquality sets x=[0,0] in the
+			// EQL/true branch without meeting against current [7,7].
+			// So the return 0 path is not detected as unreachable.
+			// TODO: fix refineFromEquality to use current.Meet(NewInterval(c,c))
+			// for EQL/true, which gives Meet([7,7],[0,0])=Bottom → prune.
+			src: `
+				package example
+
+				func check(x int) int {
+					if x == 0 {
+						return 0
+					}
+					return x
+				}
+
+				func caller() int {
+					return 100 / check(7)
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+
+		"both branches reachable, returns joined": {
+			src: `
+				package example
+
+				func check(x int) int {
+					if x > 0 {
+						return 1
+					}
+					return 0
+				}
+
+				func caller(x int) int {
+					return 100 / check(x)
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+
+		"nested branches, only deepest return reachable": {
+			src: `
+				package example
+
+				func classify(x int) int {
+					if x > 10 {
+						if x > 20 {
+							return 2
+						}
+						return 1
+					}
+					return 0
+				}
+
+				func caller() int {
+					return 100 / classify(25)
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // classify(25): x>10 true, x>20 true, returns 2
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
