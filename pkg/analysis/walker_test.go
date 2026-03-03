@@ -2,6 +2,7 @@ package analysis_test
 
 import (
 	"go/ast"
+	"go/importer"
 	"go/parser"
 	"go/token"
 	"go/types"
@@ -330,7 +331,7 @@ func buildSSA(t *testing.T, src string) *ssa.Package {
 	file, err := parser.ParseFile(fset, "anything.go", src, 0)
 	require.NoError(t, err)
 
-	conf := types.Config{Importer: nil}
+	conf := types.Config{Importer: importer.Default()}
 	info := &types.Info{
 		Types: make(map[ast.Expr]types.TypeAndValue),
 		Defs:  make(map[*ast.Ident]types.Object),
@@ -340,6 +341,22 @@ func buildSSA(t *testing.T, src string) *ssa.Package {
 	require.NoError(t, err)
 
 	prog := ssa.NewProgram(fset, ssa.SanityCheckFunctions)
+
+	// Recursively create SSA packages for all imports so prog.Build()
+	// can resolve them. Without this, importing "fmt" or "math" panics.
+	var createDeps func(p *types.Package)
+	createDeps = func(p *types.Package) {
+		if prog.Package(p) != nil {
+			return
+		}
+		prog.CreatePackage(p, nil, nil, true)
+		for _, imp := range p.Imports() {
+			createDeps(imp)
+		}
+	}
+	for _, imp := range pkg.Imports() {
+		createDeps(imp)
+	}
 
 	ssaPkg := prog.CreatePackage(pkg, []*ast.File{file}, info, false)
 	prog.Build()
