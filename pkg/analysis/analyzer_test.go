@@ -1912,6 +1912,649 @@ func TestAnalyzeParamTypeBounds(t *testing.T) {
 	}
 }
 
+// TestAnalyzeConvertOverflow tests integer overflow detection on type
+// conversion (narrowing) instructions.
+func TestAnalyzeConvertOverflow(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src     string
+		fnName  string
+		wantLen int
+		checks  []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		// === PROVEN OVERFLOW — source entirely outside target bounds ===
+
+		"int16 300 to int8 proven overflow": {
+			// [300, 300] entirely outside [-128, 127]
+			src: `
+				package example
+
+				func convert300(x int16) int8 {
+					x = 300
+					return int8(x)
+				}
+			`,
+			fnName:  "convert300",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in conversion"},
+			},
+		},
+		"int16 negative to int8 proven overflow": {
+			// [-300, -300] entirely outside [-128, 127]
+			src: `
+				package example
+
+				func convertNeg300(x int16) int8 {
+					x = -300
+					return int8(x)
+				}
+			`,
+			fnName:  "convertNeg300",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in conversion"},
+			},
+		},
+		"int32 large to int16 proven overflow": {
+			// [100000, 100000] entirely outside [-32768, 32767]
+			src: `
+				package example
+
+				func convertLargeToInt16(x int32) int16 {
+					x = 100000
+					return int16(x)
+				}
+			`,
+			fnName:  "convertLargeToInt16",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in conversion"},
+			},
+		},
+		"int32 large to int8 proven overflow": {
+			// [1000, 1000] entirely outside [-128, 127]
+			src: `
+				package example
+
+				func convertInt32ToInt8(x int32) int8 {
+					x = 1000
+					return int8(x)
+				}
+			`,
+			fnName:  "convertInt32ToInt8",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in conversion"},
+			},
+		},
+
+		// === POSSIBLE OVERFLOW — source partially exceeds target bounds ===
+
+		"int16 param to int8 possible overflow": {
+			// int16 param is [-32768, 32767], which partially exceeds [-128, 127]
+			src: `
+				package example
+
+				func convertParamToInt8(x int16) int8 {
+					return int8(x)
+				}
+			`,
+			fnName:  "convertParamToInt8",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+		"int32 param to int16 possible overflow": {
+			// int32 param is [-2147483648, 2147483647], partially exceeds int16
+			src: `
+				package example
+
+				func convertInt32ParamToInt16(x int32) int16 {
+					return int16(x)
+				}
+			`,
+			fnName:  "convertInt32ParamToInt16",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+		"int32 param to int8 possible overflow": {
+			// int32 param partially exceeds int8
+			src: `
+				package example
+
+				func convertInt32ParamToInt8(x int32) int8 {
+					return int8(x)
+				}
+			`,
+			fnName:  "convertInt32ParamToInt8",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+		"int param to int8 possible overflow": {
+			// int param is Top, doesn't fit int8
+			src: `
+				package example
+
+				func convertIntToInt8(x int) int8 {
+					return int8(x)
+				}
+			`,
+			fnName:  "convertIntToInt8",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+		"int64 param to int8 possible overflow": {
+			// int64 param is Top, doesn't fit int8
+			src: `
+				package example
+
+				func convertInt64ToInt8(x int64) int8 {
+					return int8(x)
+				}
+			`,
+			fnName:  "convertInt64ToInt8",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+
+		// === SAFE — source fits within target bounds ===
+
+		"int8 to int16 widening safe": {
+			// int8 [-128, 127] fits within int16 [-32768, 32767]
+			src: `
+				package example
+
+				func widenInt8ToInt16(x int8) int16 {
+					return int16(x)
+				}
+			`,
+			fnName:  "widenInt8ToInt16",
+			wantLen: 0,
+		},
+		"int8 to int32 widening safe": {
+			// int8 [-128, 127] fits within int32
+			src: `
+				package example
+
+				func widenInt8ToInt32(x int8) int32 {
+					return int32(x)
+				}
+			`,
+			fnName:  "widenInt8ToInt32",
+			wantLen: 0,
+		},
+		"int16 to int32 widening safe": {
+			// int16 [-32768, 32767] fits within int32
+			src: `
+				package example
+
+				func widenInt16ToInt32(x int16) int32 {
+					return int32(x)
+				}
+			`,
+			fnName:  "widenInt16ToInt32",
+			wantLen: 0,
+		},
+		"int8 constant to int8 same width safe": {
+			// [50, 50] fits within [-128, 127]
+			src: `
+				package example
+
+				func sameWidthSafe(x int8) int8 {
+					x = 50
+					return int8(x)
+				}
+			`,
+			fnName:  "sameWidthSafe",
+			wantLen: 0,
+		},
+		"int16 small constant to int8 safe": {
+			// [50, 50] fits within [-128, 127]
+			src: `
+				package example
+
+				func smallConstToInt8(x int16) int8 {
+					x = 50
+					return int8(x)
+				}
+			`,
+			fnName:  "smallConstToInt8",
+			wantLen: 0,
+		},
+		"int16 negative constant to int8 safe": {
+			// [-100, -100] fits within [-128, 127]
+			src: `
+				package example
+
+				func negConstToInt8(x int16) int8 {
+					x = -100
+					return int8(x)
+				}
+			`,
+			fnName:  "negConstToInt8",
+			wantLen: 0,
+		},
+		"int16 at int8 max boundary safe": {
+			// [127, 127] fits within [-128, 127]
+			src: `
+				package example
+
+				func boundaryMaxSafe(x int16) int8 {
+					x = 127
+					return int8(x)
+				}
+			`,
+			fnName:  "boundaryMaxSafe",
+			wantLen: 0,
+		},
+		"int16 at int8 min boundary safe": {
+			// [-128, -128] fits within [-128, 127]
+			src: `
+				package example
+
+				func boundaryMinSafe(x int16) int8 {
+					x = -128
+					return int8(x)
+				}
+			`,
+			fnName:  "boundaryMinSafe",
+			wantLen: 0,
+		},
+
+		// === UNTRACKED TARGET — no finding ===
+
+		"int8 to int widening untracked": {
+			// int is untracked. No overflow check.
+			src: `
+				package example
+
+				func int8ToInt(x int8) int {
+					return int(x)
+				}
+			`,
+			fnName:  "int8ToInt",
+			wantLen: 0,
+		},
+		"int8 to int64 widening untracked": {
+			// int64 is untracked. No overflow check.
+			src: `
+				package example
+
+				func int8ToInt64(x int8) int64 {
+					return int64(x)
+				}
+			`,
+			fnName:  "int8ToInt64",
+			wantLen: 0,
+		},
+		"int16 to int widening untracked": {
+			src: `
+				package example
+
+				func int16ToInt(x int16) int {
+					return int(x)
+				}
+			`,
+			fnName:  "int16ToInt",
+			wantLen: 0,
+		},
+
+		// === GUARDED CONVERSION — branch narrows source before convert ===
+
+		"int16 guarded upper then convert to int8 safe": {
+			// x < 100 refines int16 to [-32768, 99].
+			// Hmm, that still partially exceeds int8 on the low end.
+			// Need both guards.
+			src: `
+				package example
+
+				func guardedConvert(x int16) int8 {
+					if x > -128 {
+						if x < 128 {
+							return int8(x)
+						}
+					}
+					return 0
+				}
+			`,
+			fnName:  "guardedConvert",
+			wantLen: 0,
+		},
+		"int16 guarded one side still warns": {
+			// x < 100 refines to [-32768, 99]. Low end exceeds int8 [-128, 127].
+			// Partial overlap → Warning.
+			src: `
+				package example
+
+				func guardedOneSide(x int16) int8 {
+					if x < 100 {
+						return int8(x)
+					}
+					return 0
+				}
+			`,
+			fnName:  "guardedOneSide",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+		"int32 tightly guarded to int8 safe": {
+			// x >= -128 && x <= 127 refines to [-128, 127]. Fits int8 exactly.
+			src: `
+				package example
+
+				func tightGuardToInt8(x int32) int8 {
+					if x >= -128 {
+						if x <= 127 {
+							return int8(x)
+						}
+					}
+					return 0
+				}
+			`,
+			fnName:  "tightGuardToInt8",
+			wantLen: 0,
+		},
+		"int32 guarded to int16 safe": {
+			// x >= -32768 && x <= 32767 refines to int16 range. Fits.
+			src: `
+				package example
+
+				func guardedToInt16(x int32) int16 {
+					if x >= -32768 {
+						if x <= 32767 {
+							return int16(x)
+						}
+					}
+					return 0
+				}
+			`,
+			fnName:  "guardedToInt16",
+			wantLen: 0,
+		},
+
+		// === BOUNDARY — one past the limit ===
+
+		"int16 one past int8 max proven overflow": {
+			// [128, 128] entirely outside [-128, 127]
+			src: `
+				package example
+
+				func onePastMax(x int16) int8 {
+					x = 128
+					return int8(x)
+				}
+			`,
+			fnName:  "onePastMax",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in conversion"},
+			},
+		},
+		"int16 one past int8 min proven overflow": {
+			// [-129, -129] entirely outside [-128, 127]
+			src: `
+				package example
+
+				func onePastMin(x int16) int8 {
+					x = -129
+					return int8(x)
+				}
+			`,
+			fnName:  "onePastMin",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in conversion"},
+			},
+		},
+
+		// === CHAINED CONVERSIONS ===
+
+		"int32 to int16 to int8 double narrowing": {
+			// int32 param → int16: possible overflow.
+			// Then int16 result (still wide) → int8: possible overflow.
+			src: `
+				package example
+
+				func doubleNarrow(x int32) int8 {
+					y := int16(x)
+					return int8(y)
+				}
+			`,
+			fnName:  "doubleNarrow",
+			wantLen: 2,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in conversion"},
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+
+		// === CONVERT AFTER ARITHMETIC ===
+
+		"arithmetic then narrow proven overflow": {
+			// int16: 100 + 100 = [200, 200]. Convert to int8: [200, 200]
+			// entirely outside [-128, 127]. Bug.
+			src: `
+				package example
+
+				func arithThenNarrow() int8 {
+					var a int16 = 100
+					var b int16 = 100
+					c := a + b
+					return int8(c)
+				}
+			`,
+			fnName:  "arithThenNarrow",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in conversion"},
+			},
+		},
+		"arithmetic then narrow safe": {
+			// int16: 30 + 40 = [70, 70]. Convert to int8: fits [-128, 127]. Safe.
+			src: `
+				package example
+
+				func arithThenNarrowSafe() int8 {
+					var a int16 = 30
+					var b int16 = 40
+					c := a + b
+					return int8(c)
+				}
+			`,
+			fnName:  "arithThenNarrowSafe",
+			wantLen: 0,
+		},
+		"arithmetic overflow then narrow both flag": {
+			// int8: 100 + 100 = [200, 200]. Overflow on the add (Bug).
+			// Convert int8 [200, 200] to int8 — also proven overflow in conversion (Bug).
+			// Wait — converting int8 to int8 won't generate a Convert instruction.
+			// Let's use int16 arithmetic that overflows int16, then narrow to int8.
+			// int16: 30000 + 30000 = [60000, 60000]. Overflow on add for int16 (Bug).
+			// Convert to int8: [60000, 60000] outside [-128, 127]. Bug.
+			src: `
+				package example
+
+				func arithOverflowThenNarrow() int8 {
+					var a int16 = 30000
+					var b int16 = 30000
+					c := a + b
+					return int8(c)
+				}
+			`,
+			fnName:  "arithOverflowThenNarrow",
+			wantLen: 2,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+				{analysis.Bug, "proven integer overflow in conversion"},
+			},
+		},
+
+		// === PHI NODE THEN CONVERT ===
+
+		"phi merge then convert safe": {
+			// Both branches assign int16 values within int8 range.
+			// Phi joins [10, 10] and [20, 20] → [10, 20]. Fits int8. Safe.
+			src: `
+				package example
+
+				func phiThenConvert(flag bool) int8 {
+					var x int16 = 10
+					if flag {
+						x = 20
+					}
+					return int8(x)
+				}
+			`,
+			fnName:  "phiThenConvert",
+			wantLen: 0,
+		},
+		"phi merge then convert warns": {
+			// Branches: [10, 10] and [200, 200] → [10, 200].
+			// Partially exceeds int8 [-128, 127]. Warning.
+			src: `
+				package example
+
+				func phiThenConvertWarns(flag bool) int8 {
+					var x int16 = 10
+					if flag {
+						x = 200
+					}
+					return int8(x)
+				}
+			`,
+			fnName:  "phiThenConvertWarns",
+			wantLen: 1,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+
+		// === LOOP THEN CONVERT ===
+
+		"loop accumulator then convert warns": {
+			// Loop accumulates int16 values. After widening, s is [0, MaxInt64].
+			// The s += i triggers possible int16 overflow.
+			// Convert to int8: partially exceeds. Warning.
+			src: `
+				package example
+
+				func loopThenConvert(n int16) int8 {
+					var s int16 = 0
+					for i := int16(0); i < n; i++ {
+						s += i
+					}
+					return int8(s)
+				}
+			`,
+			fnName:  "loopThenConvert",
+			wantLen: 2,
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible integer overflow"},
+				{analysis.Warning, "possible integer overflow in conversion"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ssaPkg := buildSSA(t, tt.src)
+
+			var fn *ssa.Function
+			for _, member := range ssaPkg.Members {
+				f, ok := member.(*ssa.Function)
+				if !ok {
+					continue
+				}
+				if f.Name() == tt.fnName {
+					fn = f
+					break
+				}
+			}
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			require.Len(t, findings, tt.wantLen, "unexpected number of findings")
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Equal(t, check.message, findings[i].Message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
 func TestAnalyzeEmptyBlocks(t *testing.T) {
 	t.Parallel()
 
