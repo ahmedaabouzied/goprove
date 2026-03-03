@@ -1807,9 +1807,9 @@ func TestAnalyzeParamTypeBounds(t *testing.T) {
 		// === Multiple params, mixed types ===
 
 		"mixed param types": {
-			// x is int (Top). int8(x) converts Top → Top (transferConvert
-			// propagates the source interval). Top / [1, 127] gives Top.
-			// Top doesn't fit int8 → overflow warning.
+			// x is int (Top). int8(x) flags possible overflow in conversion
+			// (Top doesn't fit int8). Then Top / [1, 127] gives Top which
+			// also exceeds int8 → second overflow warning on the division.
 			src: `
 				package example
 
@@ -1821,11 +1821,12 @@ func TestAnalyzeParamTypeBounds(t *testing.T) {
 				}
 			`,
 			fnName:  "mixedParams",
-			wantLen: 1,
+			wantLen: 2,
 			checks: []struct {
 				severity analysis.Severity
 				message  string
 			}{
+				{analysis.Warning, "possible integer overflow in conversion"},
 				{analysis.Warning, "possible integer overflow"},
 			},
 		},

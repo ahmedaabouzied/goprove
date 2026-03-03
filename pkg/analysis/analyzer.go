@@ -251,6 +251,38 @@ func (a *Analyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction
 			a.flagDivisionByZero(v, y)
 		}
 		a.flagOverflow(block, v)
+	case *ssa.Convert:
+		a.checkConvertOp(block, v)
+	}
+}
+
+func (a *Analyzer) checkConvertOp(block *ssa.BasicBlock, v *ssa.Convert) {
+	sourceInterval := a.lookupInterval(block, v.X)
+	targetKind, ok := v.Type().Underlying().(*types.Basic)
+	if ok {
+		targetInterval, covered := IntervalForType(targetKind.Kind())
+		if covered {
+			if targetInterval.Contains(sourceInterval) {
+				return
+			}
+
+			if targetInterval.Meet(sourceInterval).IsBottom {
+				// completely disjoint bounds and interval. Overflow detected
+				a.findings = append(a.findings, Finding{
+					v.Pos(),
+					"proven integer overflow in conversion",
+					Bug,
+				})
+				return
+			}
+
+			// Partial overlap
+			a.findings = append(a.findings, Finding{
+				v.Pos(),
+				"possible integer overflow in conversion",
+				Warning,
+			})
+		}
 	}
 }
 
