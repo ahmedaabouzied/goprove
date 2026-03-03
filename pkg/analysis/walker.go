@@ -49,5 +49,5 @@ func ReversePostOrder(fn *ssa.Function) ([]*ssa.BasicBlock, error) {
 		}
 	}
 
-	return postOrder, nil
+	return postOrder[writeIdx+1:], nil
 }
