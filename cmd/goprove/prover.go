@@ -3,7 +3,10 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"go/token"
 	"os"
+	"path/filepath"
+	"sort"
 
 	"github.com/ahmedaabouzied/goprove/pkg/analysis"
 	"github.com/ahmedaabouzied/goprove/pkg/loader"
@@ -12,7 +15,12 @@ import (
 
 // provePackage is the main entry point for our prover.
 func provePackage(path string) error {
-	_, pkgs, err := loader.Load(path)
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	prog, pkgs, err := loader.Load(path)
 	if err != nil {
 		return err
 	}
@@ -21,44 +29,60 @@ func provePackage(path string) error {
 	}
 
 	for _, pkg := range pkgs {
-		if err := analyzePkg(pkg); err != nil {
+		if err := analyzePkg(wd, prog.Fset, pkg); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func analyzePkg(pkg *ssa.Package) error {
+func analyzePkg(wd string, fset *token.FileSet, pkg *ssa.Package) error {
+	findings := []analysis.Finding{}
+
 	for _, member := range pkg.Members {
 		fn, ok := member.(*ssa.Function)
 		if !ok {
 			continue
 		}
-		if err := analyzeFunction(fn); err != nil {
-			return err
-		}
+		findings = append(findings, analyzeFunction(fn)...)
 	}
-	return nil
-}
 
-func analyzeFunction(fn *ssa.Function) error {
+	// sort findings
+	sort.Slice(findings, func(i, j int) bool {
+		// Sort the findings by severity first
+		if findings[i].Severity != findings[j].Severity {
+			return findings[i].Severity > findings[j].Severity
+		}
+		// Sort the findings by line number
+		return findings[i].Pos < findings[j].Pos
+	})
+
 	w := bufio.NewWriter(os.Stdout)
-	analyzer := analysis.Analyzer{}
-	findings := analyzer.Analyze(fn)
 	for _, finding := range findings {
-		printFinding(w, finding)
+		printFinding(wd, w, fset, finding)
 	}
+
 	return w.Flush()
 }
 
-func printFinding(w *bufio.Writer, finding analysis.Finding) {
+func analyzeFunction(fn *ssa.Function) []analysis.Finding {
+	analyzer := analysis.Analyzer{}
+	return analyzer.Analyze(fn)
+}
+
+func printFinding(wd string, w *bufio.Writer, fset *token.FileSet, finding analysis.Finding) error {
+	pos := fset.Position(finding.Pos)
+	fileName, err := filepath.Rel(wd, pos.Filename)
+	if err != nil {
+		return err
+	}
+	pos.Filename = fileName
 	switch finding.Severity {
 	case analysis.Bug:
-		fmt.Fprintf(w, "\033[31m %d %s \n", finding.Pos, finding.Message)
+		fmt.Fprintf(w, "\033[31m Error: %s %s \033[0m\n", pos, finding.Message)
 	case analysis.Warning:
-		fmt.Fprintf(w, "\033[33m %d %s \n", finding.Pos, finding.Message)
-	case analysis.Safe:
-		fmt.Fprintf(w, "\033[32m %d %s \n", finding.Pos, finding.Message)
+		fmt.Fprintf(w, "\033[33m Warning: %s %s \033[0m\n", pos, finding.Message)
 	default:
 	}
+	return nil
 }
