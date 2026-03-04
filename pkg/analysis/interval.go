@@ -33,6 +33,26 @@ func Bottom() Interval {
 }
 
 func (i Interval) ExcludeZero() Interval {
+	if i.IsBottom {
+		return Bottom()
+	}
+
+	if i.IsTop {
+		i.excludeZero = true
+		return i
+	}
+
+	if i.Lo == 0 && i.Hi == 0 { // Excluding 0 out of [0,0]
+		return Bottom()
+	}
+	if i.Lo == 0 {
+		return NewInterval(1, i.Hi)
+	}
+
+	if i.Hi == 0 {
+		return NewInterval(i.Lo, -1)
+	}
+
 	i.excludeZero = true
 	return i
 }

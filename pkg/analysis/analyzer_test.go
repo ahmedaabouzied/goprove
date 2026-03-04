@@ -3930,3 +3930,1288 @@ func TestBuildSSA_MultipleImportsResolve(t *testing.T) {
 	analyzer := &analysis.Analyzer{}
 	_ = analyzer.Analyze(fn)
 }
+
+// ---------------------------------------------------------------------------
+// Interprocedural: recursive / depth-limit tests
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_Recursion(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"direct recursion with concrete arg, terminates naturally": {
+			// factorial(5) recurses 5 levels (well under maxCallDepth=10).
+			// Each level has a concrete arg, base case n<=1 is reached.
+			// Result is precise: 120. Division is safe.
+			src: `
+				package example
+
+				func factorial(n int) int {
+					if n <= 1 {
+						return 1
+					}
+					return n * factorial(n - 1)
+				}
+
+				func caller() int {
+					return 100 / factorial(5)
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // factorial(5)=120, no zero
+		},
+
+		"mutual recursion with concrete arg, terminates naturally": {
+			// pingPong(3)→pong(2)→pingPong(1)→pong(0)→2.
+			// Only 4 levels deep. Terminates before depth limit.
+			src: `
+				package example
+
+				func pingPong(n int) int {
+					if n <= 0 {
+						return 1
+					}
+					return pong(n - 1)
+				}
+
+				func pong(n int) int {
+					if n <= 0 {
+						return 2
+					}
+					return pingPong(n - 1)
+				}
+
+				func caller() int {
+					return 100 / pingPong(3)
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // terminates naturally, returns nonzero
+		},
+
+		"tail recursive countdown with concrete arg, terminates naturally": {
+			// countdown(3)→countdown(2)→countdown(1)→countdown(0)→42.
+			// Only 4 levels. Terminates naturally.
+			src: `
+				package example
+
+				func countdown(n int) int {
+					if n <= 0 {
+						return 42
+					}
+					return countdown(n - 1)
+				}
+
+				func caller() int {
+					return 100 / countdown(3)
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // countdown(3)=42
+		},
+
+		"recursion with unknown arg hits depth limit, warns": {
+			// With a wide-range param, both branches are reachable
+			// at every level. Eventually hits depth limit → Top.
+			src: `
+				package example
+
+				func recur(n int) int {
+					if n <= 0 {
+						return 1
+					}
+					return recur(n - 1)
+				}
+
+				func caller(x int) int {
+					return 100 / recur(x)
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: deep call chains (4+ levels)
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_DeepChains(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"four-level chain returning constant 3": {
+			src: `
+				package example
+
+				func d() int { return 3 }
+				func c() int { return d() }
+				func b() int { return c() }
+				func a() int { return b() }
+
+				func caller(x int) int {
+					return x / a()
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // a()->b()->c()->d()=3
+		},
+
+		"four-level chain returning zero": {
+			src: `
+				package example
+
+				func d() int { return 0 }
+				func c() int { return d() }
+				func b() int { return c() }
+				func a() int { return b() }
+
+				func caller(x int) int {
+					return x / a()
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"five-level chain with arithmetic at each level": {
+			src: `
+				package example
+
+				func e(x int) int { return x + 1 }
+				func d(x int) int { return e(x) + 1 }
+				func c(x int) int { return d(x) + 1 }
+				func b(x int) int { return c(x) + 1 }
+				func a(x int) int { return b(x) + 1 }
+
+				func caller() int {
+					return 100 / a(0)
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // a(0)=b(0)+1=c(0)+2=d(0)+3=e(0)+4=0+1+4=5
+		},
+
+		"deep chain where middle function zeroes out": {
+			src: `
+				package example
+
+				func leaf(x int) int { return x }
+				func middle(x int) int { return leaf(x) - x }
+				func top(x int) int { return middle(x) }
+
+				func caller() int {
+					return 100 / top(5)
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: nested/chained calls (f(g(x)))
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_NestedCalls(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"f(g(x)) where g returns 0 and f adds 1": {
+			src: `
+				package example
+
+				func g(x int) int { return 0 }
+				func f(x int) int { return x + 1 }
+
+				func caller() int {
+					return 100 / f(g(5))
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // f(g(5)) = f(0) = 1
+		},
+
+		"f(g(x)) where composition yields zero": {
+			src: `
+				package example
+
+				func g(x int) int { return x + 1 }
+				func f(x int) int { return x - 1 }
+
+				func caller() int {
+					return 100 / f(g(0))
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"triple nesting: f(g(h(x)))": {
+			src: `
+				package example
+
+				func h(x int) int { return x * 2 }
+				func g(x int) int { return x + 3 }
+				func f(x int) int { return x - 1 }
+
+				func caller() int {
+					return 100 / f(g(h(1)))
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // h(1)=2, g(2)=5, f(5)=4
+		},
+
+		"nested call as both arguments to a binary op": {
+			src: `
+				package example
+
+				func inc(x int) int { return x + 1 }
+				func dec(x int) int { return x - 1 }
+
+				func caller() int {
+					d := inc(2) - dec(4)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: summary caching
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_SummaryCaching(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"same function called 3 times with same args, reuses summary": {
+			src: `
+				package example
+
+				func ten() int { return 10 }
+
+				func caller(x int) int {
+					a := x / ten()
+					b := x / ten()
+					c := x / ten()
+					return a + b + c
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // all safe, ten()=10
+		},
+
+		"same function called with different args producing different summaries": {
+			src: `
+				package example
+
+				func sub1(x int) int { return x - 1 }
+
+				func caller() int {
+					safe := sub1(5)    // = 4
+					zero := sub1(1)    // = 0
+					a := 100 / safe
+					b := 100 / zero
+					return a + b
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"callee called from two different call sites, each with different constant": {
+			src: `
+				package example
+
+				func double(x int) int { return x * 2 }
+
+				func caller() int {
+					a := double(0)   // = 0
+					b := double(3)   // = 6
+					return b / a
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: overflow detection across call boundaries
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_OverflowAcrossCalls(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"callee returns near-max value, caller adds to it causing overflow": {
+			src: `
+				package example
+
+				func nearMax() int8 {
+					return 126
+				}
+
+				func caller() int8 {
+					return nearMax() + 2
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+
+		"callee returns safe value, caller adds within bounds": {
+			src: `
+				package example
+
+				func small() int8 {
+					return 10
+				}
+
+				func caller() int8 {
+					return small() + 5
+				}
+			`,
+			fnName: "caller",
+			checks: nil,
+		},
+
+		"callee returns near-min value, caller subtracts causing underflow": {
+			src: `
+				package example
+
+				func nearMin() int8 {
+					return -127
+				}
+
+				func caller() int8 {
+					return nearMin() - 2
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow"},
+			},
+		},
+
+		"callee returns value, conversion to narrower type overflows": {
+			src: `
+				package example
+
+				func big() int {
+					return 200
+				}
+
+				func caller() int8 {
+					return int8(big())
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "proven integer overflow in conversion"},
+			},
+		},
+
+		"callee returns value within narrow type bounds, conversion safe": {
+			src: `
+				package example
+
+				func small() int {
+					return 50
+				}
+
+				func caller() int8 {
+					return int8(small())
+				}
+			`,
+			fnName: "caller",
+			checks: nil,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: function value calls (StaticCallee nil → Top)
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_FunctionValues(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"function passed as value, StaticCallee nil, returns Top": {
+			src: `
+				package example
+
+				func apply(f func(int) int, x int) int {
+					return f(x)
+				}
+
+				func double(x int) int {
+					return x * 2
+				}
+
+				func caller() int {
+					d := apply(double, 5)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: caller guards call result with branch
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_CallerGuards(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"caller checks callee result != 0 before dividing": {
+			src: `
+				package example
+
+				func maybeZero(x int) int {
+					if x > 0 {
+						return x
+					}
+					return 0
+				}
+
+				func caller(x int) int {
+					d := maybeZero(x)
+					if d != 0 {
+						return 100 / d
+					}
+					return 0
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // guarded by d != 0
+		},
+
+		"caller checks callee result > 0 before dividing": {
+			src: `
+				package example
+
+				func compute(x int) int {
+					return x - 5
+				}
+
+				func caller(x int) int {
+					d := compute(x)
+					if d > 0 {
+						return 100 / d
+					}
+					return -1
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // guarded by d > 0
+		},
+
+		"caller checks but divides in wrong branch": {
+			src: `
+				package example
+
+				func compute(x int) int {
+					return x - 5
+				}
+
+				func caller(x int) int {
+					d := compute(x)
+					if d == 0 {
+						return 100 / d
+					}
+					return 0
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: multiple parameters
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_MultipleParams(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"three-param function, known args, safe result": {
+			src: `
+				package example
+
+				func combine(a, b, c int) int {
+					return a + b + c
+				}
+
+				func caller() int {
+					return 100 / combine(1, 2, 3)
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // 1+2+3=6
+		},
+
+		"three-param function, args cancel to zero": {
+			src: `
+				package example
+
+				func combine(a, b, c int) int {
+					return a + b - c
+				}
+
+				func caller() int {
+					return 100 / combine(3, 2, 5)
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"param ordering matters": {
+			src: `
+				package example
+
+				func sub(a, b int) int {
+					return a - b
+				}
+
+				func caller() int {
+					d := sub(3, 3)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"param ordering: reversed args are safe": {
+			src: `
+				package example
+
+				func sub(a, b int) int {
+					return a - b
+				}
+
+				func caller() int {
+					d := sub(10, 3)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // 10-3=7
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: callee findings should not leak into caller
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_FindingsIsolation(t *testing.T) {
+	t.Parallel()
+
+	// When a child analyzer finds issues inside the callee, those findings
+	// should NOT appear in the caller's findings list. Each Analyze() call
+	// produces findings only for the function being analyzed.
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"callee has internal div-by-zero, caller is clean": {
+			src: `
+				package example
+
+				func buggyCallee(x int) int {
+					y := x - x
+					_ = x / y
+					return 1
+				}
+
+				func caller() int {
+					d := buggyCallee(5)
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			// Only the caller's own findings. The callee's div-by-zero
+			// should not appear here. d=1 so caller's division is safe.
+			checks: nil,
+		},
+
+		"callee has overflow, caller only sees own issues": {
+			src: `
+				package example
+
+				func overflowCallee() int8 {
+					var x int8 = 127
+					_ = x + 1
+					return 10
+				}
+
+				func caller() int {
+					d := int(overflowCallee())
+					return 100 / d
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // caller is safe, callee overflow is callee's problem
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: callee with multiple return paths (complex control flow)
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_ComplexCalleeControlFlow(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src    string
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"callee with 4 branches, all nonzero for known input": {
+			src: `
+				package example
+
+				func classify(x int) int {
+					if x > 100 {
+						return 4
+					}
+					if x > 50 {
+						return 3
+					}
+					if x > 0 {
+						return 2
+					}
+					return 1
+				}
+
+				func caller() int {
+					return 100 / classify(75)
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // classify(75): x>100 false, x>50 true → returns 3
+		},
+
+		"callee with 4 branches, unknown input includes zero path": {
+			src: `
+				package example
+
+				func risky(x int) int {
+					if x > 100 {
+						return 3
+					}
+					if x > 50 {
+						return 2
+					}
+					if x > 0 {
+						return 1
+					}
+					return 0
+				}
+
+				func caller(x int) int {
+					return 100 / risky(x)
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+
+		"callee with early return guard": {
+			src: `
+				package example
+
+				func safeDiv(x, y int) int {
+					if y == 0 {
+						return 0
+					}
+					return x / y
+				}
+
+				func caller() int {
+					return safeDiv(100, 0)
+				}
+			`,
+			fnName: "caller",
+			// safeDiv(100, 0): y=0, enters y==0 branch, returns 0.
+			// The false branch (y!=0) is unreachable since ExcludeZero([0,0])=Bottom.
+			// Caller doesn't divide by the result, so no finding.
+			checks: nil,
+		},
+
+		"callee switches on parameter to return different values": {
+			// pick(1): x=[1,1], x==1 true branch returns 10.
+			// But the false branch of x==1 calls ExcludeZero (not Exclude(1)),
+			// so x=[1,1] stays reachable in the false path. The "return 0"
+			// path is not pruned. Known limitation: equality refinement
+			// only excludes zero, not arbitrary constants.
+			src: `
+				package example
+
+				func pick(x int) int {
+					if x == 1 {
+						return 10
+					}
+					if x == 2 {
+						return 20
+					}
+					return 0
+				}
+
+				func caller() int {
+					return 100 / pick(1)
+				}
+			`,
+			fnName: "caller",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := &analysis.Analyzer{}
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural: does not crash on edge cases
+// ---------------------------------------------------------------------------
+
+func TestAnalyzeInterprocedural_NoCrash(t *testing.T) {
+	t.Parallel()
+
+	// These tests verify the analyzer doesn't panic on tricky SSA patterns.
+	tests := map[string]struct {
+		src    string
+		fnName string
+	}{
+		"callee with panic path": {
+			src: `
+				package example
+
+				func mustPositive(x int) int {
+					if x <= 0 {
+						panic("must be positive")
+					}
+					return x
+				}
+
+				func caller() int {
+					return 100 / mustPositive(5)
+				}
+			`,
+			fnName: "caller",
+		},
+
+		"callee that calls builtin len": {
+			src: `
+				package example
+
+				func caller(x int) int {
+					return x + 1
+				}
+			`,
+			fnName: "caller",
+		},
+
+		"deeply nested if-else in callee": {
+			src: `
+				package example
+
+				func deep(a, b, c int) int {
+					if a > 0 {
+						if b > 0 {
+							if c > 0 {
+								return a + b + c
+							}
+							return a + b
+						}
+						return a
+					}
+					return 0
+				}
+
+				func caller() int {
+					return 100 / deep(1, 2, 3)
+				}
+			`,
+			fnName: "caller",
+		},
+
+		"callee with multiple params, some unused": {
+			src: `
+				package example
+
+				func onlyFirst(a, b, c int) int {
+					return a
+				}
+
+				func caller() int {
+					return 100 / onlyFirst(5, 0, 0)
+				}
+			`,
+			fnName: "caller",
+		},
+
+		"self-recursive with no base case that returns useful value": {
+			src: `
+				package example
+
+				func infinite(x int) int {
+					return infinite(x + 1)
+				}
+
+				func caller() int {
+					return 100 / infinite(0)
+				}
+			`,
+			fnName: "caller",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			// Must not panic — that's the only assertion here.
+			analyzer := &analysis.Analyzer{}
+			_ = analyzer.Analyze(fn)
+		})
+	}
+}

@@ -295,6 +295,109 @@ func TestExcludeZero_ContainsZero(t *testing.T) {
 	}
 }
 
+func TestExcludeZero_Structure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   Interval
+		want Interval
+	}{
+		// [0,0] → Bottom (no values left)
+		{"exactly zero becomes Bottom", NewInterval(0, 0), Bottom()},
+
+		// [0, N] → [1, N] (shift Lo past zero)
+		{"lo is zero", NewInterval(0, 10), NewInterval(1, 10)},
+		{"lo is zero single", NewInterval(0, 1), NewInterval(1, 1)},
+
+		// [N, 0] → [N, -1] (shift Hi below zero)
+		{"hi is zero", NewInterval(-10, 0), NewInterval(-10, -1)},
+		{"hi is zero single", NewInterval(-1, 0), NewInterval(-1, -1)},
+
+		// Spans zero but neither bound is zero → flag only, bounds unchanged
+		{"spans zero", NewInterval(-5, 5), NewInterval(-5, 5)},
+		{"wide span", NewInterval(-100, 100), NewInterval(-100, 100)},
+
+		// Doesn't contain zero at all → no structural change
+		{"all positive", NewInterval(1, 10), NewInterval(1, 10)},
+		{"all negative", NewInterval(-10, -1), NewInterval(-10, -1)},
+		{"single positive", NewInterval(7, 7), NewInterval(7, 7)},
+		{"single negative", NewInterval(-3, -3), NewInterval(-3, -3)},
+
+		// Bottom → Bottom
+		{"bottom stays bottom", Bottom(), Bottom()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.in.ExcludeZero()
+
+			if tt.want.IsBottom {
+				require.True(t, got.IsBottom,
+					"%s: expected Bottom, got %+v", tt.name, got)
+				return
+			}
+
+			require.False(t, got.IsBottom, "%s: unexpected Bottom", tt.name)
+			require.Equal(t, tt.want.Lo, got.Lo, "%s: Lo mismatch", tt.name)
+			require.Equal(t, tt.want.Hi, got.Hi, "%s: Hi mismatch", tt.name)
+			require.False(t, got.ContainsZero(),
+				"%s: result should not contain zero", tt.name)
+		})
+	}
+}
+
+func TestExcludeZero_TopPreservesIsTop(t *testing.T) {
+	t.Parallel()
+
+	// Top.ExcludeZero must remain Top (with flag), not collapse to [0,0].
+	got := Top().ExcludeZero()
+
+	require.True(t, got.IsTop, "ExcludeZero on Top must keep IsTop=true")
+	require.True(t, got.excludeZero, "ExcludeZero on Top must set excludeZero flag")
+	require.False(t, got.ContainsZero(), "Top.ExcludeZero must not contain zero")
+	require.False(t, got.IsBottom, "Top.ExcludeZero must not be Bottom")
+}
+
+func TestDiv_WithExcludedZeroDivisor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// After ExcludeZero, [0,10] becomes [1,10] — safe to divide
+		{"lo was zero, now 1", NewInterval(100, 100), NewInterval(0, 10).ExcludeZero(), NewInterval(10, 100)},
+
+		// After ExcludeZero, [-10,0] becomes [-10,-1] — safe to divide
+		{"hi was zero, now -1", NewInterval(100, 100), NewInterval(-10, 0).ExcludeZero(), NewInterval(-100, -10)},
+
+		// After ExcludeZero, [0,0] becomes Bottom — Div returns Bottom
+		{"zero excluded to Bottom", NewInterval(100, 100), NewInterval(0, 0).ExcludeZero(), Bottom()},
+
+		// Spans zero with flag: [-5,5].ExcludeZero still has Lo=-5, Hi=5
+		// but excludeZero=true. ContainsZero returns false → Div proceeds.
+		// lo = min(100/-5, 100/5) = min(-20, 20) = -20
+		// hi = max(100/-5, 100/5) = max(-20, 20) = 20
+		{"spans zero with flag", NewInterval(100, 100), NewInterval(-5, 5).ExcludeZero(), NewInterval(-20, 20)},
+
+		// Top.ExcludeZero stays Top → checkSpecial returns Top
+		{"top excluded", NewInterval(100, 100), Top().ExcludeZero(), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Div(tt.b)
+			require.True(t, got.Equals(tt.want),
+				"%s: %+v.Div(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
 func TestExcludeZero_Join(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
