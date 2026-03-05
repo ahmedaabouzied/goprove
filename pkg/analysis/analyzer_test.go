@@ -197,6 +197,175 @@ func TestAnalyze(t *testing.T) {
 			severity: analysis.Warning,
 			message:  "possible division by zero",
 		},
+		"mod by constant is safe": {
+			src: `
+				package example
+
+				func modByConst(x int) int {
+					return x % 10
+				}
+			`,
+			fnName:  "modByConst",
+			wantLen: 0,
+		},
+		"mod by negative constant is safe": {
+			src: `
+				package example
+
+				func modByNegConst(x int) int {
+					return x % -3
+				}
+			`,
+			fnName:  "modByNegConst",
+			wantLen: 0,
+		},
+		"mod by one is safe": {
+			src: `
+				package example
+
+				func modByOne(x int) int {
+					return x % 1
+				}
+			`,
+			fnName:  "modByOne",
+			wantLen: 0,
+		},
+		"safe mod with neq check": {
+			src: `
+				package example
+
+				func safeMod(x, y int) int {
+					if y != 0 {
+						return x % y
+					}
+					return 0
+				}
+			`,
+			fnName:  "safeMod",
+			wantLen: 0,
+		},
+		"safe mod with eq check": {
+			src: `
+				package example
+
+				func safeModEq(x, y int) int {
+					if 0 == y {
+						return 0
+					}
+					return x % y
+				}
+			`,
+			fnName:  "safeModEq",
+			wantLen: 0,
+		},
+		"safe mod with greater than zero": {
+			src: `
+				package example
+
+				func safeModGt(x, y int) int {
+					if y > 0 {
+						return x % y
+					}
+					return 0
+				}
+			`,
+			fnName:  "safeModGt",
+			wantLen: 0,
+		},
+		"safe mod with less than zero": {
+			src: `
+				package example
+
+				func safeModLt(x, y int) int {
+					if y < 0 {
+						return x % y
+					}
+					return 0
+				}
+			`,
+			fnName:  "safeModLt",
+			wantLen: 0,
+		},
+		"mod by const zero minus zero is a bug": {
+			src: `
+				package example
+
+				func modByConstZero(x int) int {
+					d := 5 - 5
+					return x % d
+				}
+			`,
+			fnName:   "modByConstZero",
+			wantLen:  1,
+			severity: analysis.Bug,
+			message:  "division by zero",
+		},
+		"mod by constant product is safe": {
+			src: `
+				package example
+
+				func modByProduct(x int) int {
+					d := 3 * 7
+					return x % d
+				}
+			`,
+			fnName:  "modByProduct",
+			wantLen: 0,
+		},
+		"mod by constant sum is safe": {
+			src: `
+				package example
+
+				func modBySum(x int) int {
+					d := 5 + 3
+					return x % d
+				}
+			`,
+			fnName:  "modBySum",
+			wantLen: 0,
+		},
+		"chained mod both warn": {
+			src: `
+				package example
+
+				func chainedMod(a, b, c int) int {
+					return a % b % c
+				}
+			`,
+			fnName:   "chainedMod",
+			wantLen:  2,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"phi node merges intervals for mod": {
+			src: `
+				package example
+
+				func phiMod(x int, flag bool) int {
+					d := 1
+					if flag {
+						d = 2
+					}
+					return x % d
+				}
+			`,
+			fnName:  "phiMod",
+			wantLen: 0,
+		},
+		"mod after computation x-x is a warning": {
+			src: `
+				package example
+
+				func modAfterComputation(x int) int {
+					d := x - x
+					return 100 % d
+				}
+			`,
+			fnName:   "modAfterComputation",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
 		// Note: x / 0 with a literal zero is a compile error in Go
 		// ("invalid operation: division by zero"), so the type checker
 		// rejects it before SSA is built. We don't need to test it —

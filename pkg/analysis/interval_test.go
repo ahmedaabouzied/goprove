@@ -682,6 +682,68 @@ func TestContainsSymmetry(t *testing.T) {
 	}
 }
 
+func TestRem(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// Basic cases: x % y ∈ [-(|y|_max - 1), |y|_max - 1]
+		{"positive mod positive", NewInterval(10, 20), NewInterval(3, 3), NewInterval(-2, 2)},
+		{"positive mod negative", NewInterval(10, 20), NewInterval(-7, -7), NewInterval(-6, 6)},
+		{"negative mod positive", NewInterval(-20, -10), NewInterval(3, 3), NewInterval(-2, 2)},
+		{"negative mod negative", NewInterval(-20, -10), NewInterval(-3, -3), NewInterval(-2, 2)},
+
+		// Single point divisor
+		{"mod by 1", NewInterval(0, 100), NewInterval(1, 1), NewInterval(0, 0)},
+		{"mod by -1", NewInterval(0, 100), NewInterval(-1, -1), NewInterval(0, 0)},
+		{"mod by 2", NewInterval(0, 100), NewInterval(2, 2), NewInterval(-1, 1)},
+
+		// Range divisors — bound is max(|Lo|, |Hi|) - 1
+		{"divisor range [2,5]", NewInterval(0, 100), NewInterval(2, 5), NewInterval(-4, 4)},
+		{"divisor range [-5,-2]", NewInterval(0, 100), NewInterval(-5, -2), NewInterval(-4, 4)},
+		{"divisor range [-3,7]", NewInterval(0, 100), NewInterval(-3, 7), NewInterval(-6, 6)},
+		{"divisor range [-7,3]", NewInterval(0, 100), NewInterval(-7, 3), NewInterval(-6, 6)},
+
+		// Dividend doesn't affect the bound — only divisor matters
+		{"wide dividend", NewInterval(-1000, 1000), NewInterval(10, 10), NewInterval(-9, 9)},
+		{"single point dividend", NewInterval(7, 7), NewInterval(3, 3), NewInterval(-2, 2)},
+		{"zero dividend", NewInterval(0, 0), NewInterval(5, 5), NewInterval(-4, 4)},
+
+		// Large divisor
+		{"large divisor", NewInterval(0, 10), NewInterval(100, 100), NewInterval(-99, 99)},
+		{"divisor larger than dividend", NewInterval(1, 5), NewInterval(10, 10), NewInterval(-9, 9)},
+
+		// Symmetric: result should be symmetric around zero
+		{"symmetric check", NewInterval(-50, 50), NewInterval(7, 7), NewInterval(-6, 6)},
+
+		// Bottom propagation
+		{"bottom lhs", Bottom(), NewInterval(1, 5), Bottom()},
+		{"bottom rhs", NewInterval(1, 5), Bottom(), Bottom()},
+		{"both bottom", Bottom(), Bottom(), Bottom()},
+
+		// Top cases
+		{"top rhs", NewInterval(1, 5), Top(), Top()},
+		{"both top", Top(), Top(), Top()},
+		// Top lhs with concrete divisor — still bounded by divisor
+		{"top lhs concrete divisor", Top(), NewInterval(4, 4), NewInterval(-3, 3)},
+		{"top lhs range divisor", Top(), NewInterval(2, 8), NewInterval(-7, 7)},
+
+		// Edge: divisor is [1,1] → result is always [0,0]
+		{"mod by exactly 1", NewInterval(-100, 100), NewInterval(1, 1), NewInterval(0, 0)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Rem(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Rem(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
 func TestDiv(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
