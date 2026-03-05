@@ -455,8 +455,10 @@ func (a *Analyzer) transferBinOp(block *ssa.BasicBlock, v *ssa.BinOp) {
 		result = x.Sub(y)
 	case token.MUL:
 		result = x.Mul(y)
-	case token.QUO, token.REM:
+	case token.QUO:
 		result = x.Div(y)
+	case token.REM:
+		result = x.Rem(y)
 	default:
 		result = Top()
 	}

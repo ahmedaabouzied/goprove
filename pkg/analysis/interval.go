@@ -184,26 +184,26 @@ func (i Interval) Div(other Interval) Interval {
 }
 
 func (i Interval) Rem(other Interval) Interval {
-	if i.IsBottom {
+	if i.IsBottom || other.IsBottom {
 		return Bottom()
-	}
-
-	if other.IsBottom {
-		return i
-	}
-
-	if i.IsTop {
-		return other
 	}
 
 	if other.IsTop {
 		return Top()
 	}
 
-	// in [-(max(|y.Lo|, |y.Hi|) - 1), max(|y.Lo|, |y.Hi|) - 1]
-	lo := -(max(int64(math.Abs(float64(other.Lo))), int64(math.Abs(float64(other.Hi)))) - 1)
-	hi := max(int64(math.Abs(float64(other.Lo))), int64(math.Abs(float64(other.Hi)))) - 1
+	// M = max(|y.Lo|, |y.Hi|)
+	M := max(abs(other.Lo), abs(other.Hi))
+	lo := -(M - 1)
+	hi := M - 1
 	return NewInterval(lo, hi)
+}
+
+func abs(i int64) int64 {
+	if i < 0 {
+		return -i
+	}
+	return i
 }
 
 func (i Interval) Neg() Interval {
