@@ -29,11 +29,14 @@ func printCallgraph(cg *callgraph.Graph, prog *ssa.Program) {
 			}
 
 			fmt.Printf("Function %s\n", name)
+			for _, param := range fn.Params {
+				fmt.Printf(" Param %s %s\n", param.Name(), param.Type().String())
+			}
 			fmt.Printf("   Callers: \n")
 			for _, edge := range node.In {
 				fmt.Printf("    <- %s\n", edge.Caller.Func.RelString(pkg.Pkg))
 			}
-			fmt.Printf("   Callees: \n")
+			fmt.Printf("  Callees: \n")
 
 			for _, edge := range node.Out {
 				fmt.Printf("    -> %s  [site: %s]\n",
