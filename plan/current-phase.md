@@ -93,3 +93,43 @@ Optional improvements (not blocking):
 - [ ] Summary line at the end of output
 - [ ] Narrowing pass to improve precision after widening
 - [ ] Unsigned integer overflow tracking
+
+---
+
+## Phase 1.8: Call Graph Integration
+
+**Status**: In progress
+**Goal**: Build a reusable call resolution layer using CHA call graphs. This unblocks interface dispatch for interval analysis and provides the foundation for nil analysis (Phase 2).
+
+### Why now (before Phase 2)
+
+The current `transferCall` uses `StaticCallee()` only — interface method calls return nil and fall back to `Top()`. Nil analysis will need the same call resolution for tracking nil state across function boundaries. Building this as a shared abstraction now avoids duplicating the work in Phase 2.
+
+### Current limitations being addressed
+
+1. No interface dispatch — `StaticCallee()` returns nil for interface calls, losing all precision
+2. `FunctionSummary` is interval-specific (`[]Interval`) — can't reuse for nil analysis
+3. CHA call graph is built (`BuildCallGraph`) but never used by the analyzer
+4. `lookupOrComputeSummary` uses indirect recursion (Analyze → transferCall → lookupOrComputeSummary → child.Analyze) — design debt per NASA P10 Rule 1
+
+### Tasks
+
+- [ ] 1.8.1 Define `CallResolver` interface — `Resolve(call *ssa.Call) []*ssa.Function`
+- [ ] 1.8.2 Implement `CHAResolver` wrapping `*callgraph.Graph` — try `StaticCallee()` first, fall back to CHA edge lookup
+- [ ] 1.8.3 Add `resolver CallResolver` field to `Analyzer` struct
+- [ ] 1.8.4 Refactor `transferCall` to use the resolver instead of `StaticCallee()` directly
+- [ ] 1.8.5 Handle multi-callee case (interface dispatch) — Join return summaries from all possible callees
+- [ ] 1.8.6 Tests: static call resolution, interface call resolution, unknown call fallback to Top
+- [ ] 1.8.7 Consider whether `FunctionSummary` needs to be generic or if domain-specific summaries with a shared resolver is better (decision needed)
+
+### Design decisions to make
+
+- **Generic `AbstractValue` interface vs domain-specific summaries**: A generic `AbstractValue` interface (`Join`, `IsTop`, `IsBottom`, `Equals`) would let `FunctionSummary` work for any domain. But it loses type safety and requires runtime assertions. Alternative: keep `IntervalSummary` and `NilSummary` separate, sharing only the `CallResolver`. Decide before implementing 1.8.7.
+
+### Definition of done
+
+1. Interface method calls resolve to concrete implementations via CHA
+2. `transferCall` uses the resolver, not `StaticCallee()` directly
+3. Multi-callee results are Joined soundly
+4. Tests cover static, interface, and unknown call scenarios
+5. `printCallgraph` is removed or replaced with something useful

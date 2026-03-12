@@ -168,3 +168,40 @@
 - Users need to know *what kind* of overflow to fix it
 - Arithmetic overflow (fix: widen the type or add bounds checks) differs from conversion overflow (fix: check before casting) differs from negation overflow (fix: guard against MinInt)
 - Shared `checkOverflow` helper takes a context string, keeping code DRY while messages are specific
+
+---
+
+## ADR-011: CallResolver interface for call graph integration
+
+**Date**: 2026-03-08
+**Status**: Proposed
+
+**Context**: The analyzer uses `StaticCallee()` to resolve calls, which returns nil for interface method calls. We have a CHA call graph (`BuildCallGraph`) but it's unused. Phase 2 (nil analysis) will also need call resolution. We need a shared abstraction.
+
+**Decision**: Define a `CallResolver` interface with a single method `Resolve(*ssa.Call) []*ssa.Function`. Implement `CHAResolver` wrapping the CHA graph. The analyzer receives a resolver at construction time.
+
+**Rationale**:
+- Decouples call resolution strategy from the analysis engine
+- CHA today, RTA/VTA later — swap the resolver, analysis code doesn't change
+- Both interval and nil analysis share the same resolver (no duplication)
+- Interface calls resolved to multiple callees → Join all return summaries (sound overapproximation)
+
+**Trade-off**: Adds one level of indirection. Worth it for reusability and testability (can inject a mock resolver in tests).
+
+---
+
+## ADR-012: Domain-specific summaries over generic AbstractValue
+
+**Date**: 2026-03-08
+**Status**: Proposed
+
+**Context**: `FunctionSummary` currently uses `[]Interval`. For nil analysis we'll need `[]NilState`. Options: (1) generic `AbstractValue` interface, (2) separate summary types per domain.
+
+**Decision**: Keep domain-specific summaries (`IntervalSummary`, `NilSummary`). Share only the `CallResolver`.
+
+**Rationale**:
+- Type safety — no runtime type assertions needed
+- Simpler — each domain knows exactly what it's working with
+- The shared part (call resolution) is the `CallResolver`, not the summary
+- Can always generalize later if real duplication emerges
+- YAGNI — don't abstract until the pattern repeats

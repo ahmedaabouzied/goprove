@@ -264,7 +264,6 @@ func (a *Analyzer) transferCall(block *ssa.BasicBlock, v *ssa.Call) {
 	} else {
 		a.state[block][v] = Top()
 	}
-
 }
 
 func (a *Analyzer) lookupOrComputeSummary(callee *ssa.Function, args []Interval) FunctionSummary {
