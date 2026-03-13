@@ -744,6 +744,112 @@ func TestRem(t *testing.T) {
 	}
 }
 
+func TestAdd_Overflow(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// int64 overflow: MaxInt64 + MaxInt64 wraps to negative
+		{"max plus max wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(-2, -2)},
+		// int64 underflow: MinInt64 + MinInt64 wraps to 0
+		{"min plus min wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(math.MinInt64, math.MinInt64), NewInterval(0, 0)},
+		// MaxInt64 + 1 overflows
+		{"max plus one wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(1, 1), NewInterval(math.MinInt64, math.MinInt64)},
+		// MinInt64 + (-1) underflows
+		{"min plus neg one wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(-1, -1), NewInterval(math.MaxInt64, math.MaxInt64)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Add(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Add(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestSub_Overflow(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// MinInt64 - MaxInt64 underflows
+		{"min minus max wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(1, 1)},
+		// MaxInt64 - MinInt64 overflows
+		{"max minus min wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(math.MinInt64, math.MinInt64), NewInterval(-1, -1)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Sub(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Sub(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestMul_Overflow(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// MaxInt64 * 2 overflows
+		{"max times two wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(2, 2), NewInterval(-2, -2)},
+		// MinInt64 * -1 overflows (result is MinInt64 due to twos complement)
+		{"min times neg one wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(-1, -1), NewInterval(math.MinInt64, math.MinInt64)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Mul(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Mul(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestNeg_MinInt64(t *testing.T) {
+	t.Parallel()
+	// Neg of MinInt64 overflows: -MinInt64 == MinInt64 in twos complement
+	// This creates an inverted interval NewInterval(-MinInt64, -MinInt64)
+	// = NewInterval(MinInt64, MinInt64) — but wait, -(-9223372036854775808) = -9223372036854775808
+	got := NewInterval(math.MinInt64, math.MinInt64).Neg()
+	// -Hi = -MinInt64 = MinInt64 (overflow), -Lo = -MinInt64 = MinInt64
+	// So NewInterval(MinInt64, MinInt64) — valid single-point
+	require.Equal(t, int64(math.MinInt64), got.Lo)
+	require.Equal(t, int64(math.MinInt64), got.Hi)
+}
+
+func TestRem_EdgeCases(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// Rem by [1,1] → always [0,0]
+		{"rem by one", NewInterval(-100, 100), NewInterval(1, 1), NewInterval(0, 0)},
+		// Rem with asymmetric divisor [-2,5] → M=5, bound=[-4,4]
+		{"asymmetric divisor", NewInterval(0, 100), NewInterval(-2, 5), NewInterval(-4, 4)},
+		// Top lhs, bottom rhs → bottom
+		{"top lhs bottom rhs", Top(), Bottom(), Bottom()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Rem(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Rem(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
 func TestDiv(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

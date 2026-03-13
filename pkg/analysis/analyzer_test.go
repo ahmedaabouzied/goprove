@@ -5758,3 +5758,215 @@ func TestAnalyzeCHA_StaticCallsStillWork(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge case tests: NEQ refinement, mutual recursion, external functions, etc.
+// ---------------------------------------------------------------------------
+
+// TestAnalyze_NEQRefinement tests that x != constVal correctly refines in both branches.
+func TestAnalyze_NEQRefinement(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		src     string
+		fnName  string
+		wantLen int
+		message string
+	}{
+		"neq zero true branch excludes zero": {
+			src: `
+				package example
+
+				func neqZero(x, y int) int {
+					if y != 0 {
+						return x / y
+					}
+					return 0
+				}
+			`,
+			fnName:  "neqZero",
+			wantLen: 0,
+		},
+		"eql zero false branch excludes zero": {
+			src: `
+				package example
+
+				func eqlZero(x, y int) int {
+					if y == 0 {
+						return 0
+					}
+					return x / y
+				}
+			`,
+			fnName:  "eqlZero",
+			wantLen: 0,
+		},
+		"eql zero true branch narrows to zero": {
+			src: `
+				package example
+
+				func eqlZeroTrue(x, y int) int {
+					if y == 0 {
+						return x / y
+					}
+					return 0
+				}
+			`,
+			fnName:  "eqlZeroTrue",
+			wantLen: 1,
+			message: "division by zero",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn)
+
+			analyzer := analysis.NewAnalyzer(nil)
+			findings := analyzer.Analyze(fn)
+
+			if tt.wantLen == 0 {
+				require.Empty(t, findings)
+			} else {
+				require.Len(t, findings, tt.wantLen)
+				require.Contains(t, findings[0].Message, tt.message)
+			}
+		})
+	}
+}
+
+// TestAnalyze_MutualRecursion tests that mutually recursive functions
+// don't infinite-loop due to the maxCallDepth limit.
+func TestAnalyze_MutualRecursion(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func ping(x int) int {
+			if x <= 0 {
+				return x
+			}
+			return pong(x - 1)
+		}
+
+		func pong(x int) int {
+			if x <= 0 {
+				return x
+			}
+			return ping(x - 1)
+		}
+	`
+	pkg := buildSSA(t, src)
+
+	fn := findFunctionInPkg(pkg, "ping")
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewAnalyzer(nil)
+	// Should terminate due to maxCallDepth, not hang.
+	_ = analyzer.Analyze(fn)
+}
+
+// TestAnalyze_BothSidesVariable tests that comparisons where both sides
+// are variables (not constants) are handled gracefully.
+func TestAnalyze_BothSidesVariable(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func bothVars(x, y int) int {
+			if x < y {
+				return x / 1
+			}
+			return y / 1
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "bothVars")
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewAnalyzer(nil)
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestAnalyze_ExternalFunction tests that calling a function with no
+// body (no blocks) returns Top and doesn't crash.
+func TestAnalyze_ExternalFunction(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		import "math"
+
+		func callExternal(x float64) float64 {
+			return math.Abs(x)
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "callExternal")
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewAnalyzer(nil)
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestAnalyze_SwitchStatement tests switch compiled to If chains in SSA.
+func TestAnalyze_SwitchStatement(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func switchDiv(x int) int {
+			var d int
+			switch x {
+			case 1:
+				d = 10
+			case 2:
+				d = 20
+			default:
+				d = 5
+			}
+			return 100 / d
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "switchDiv")
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewAnalyzer(nil)
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestAnalyze_MultipleReturnResults verifies that multi-value returns
+// don't crash the analyzer. The Extract instruction is not yet tracked,
+// so the destructured value is Top → warns about division.
+func TestAnalyze_MultipleReturnResults(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func twoReturns(x int) (int, int) {
+			return x + 1, x - 1
+		}
+
+		func callTwoReturns(x int) int {
+			a, _ := twoReturns(5)
+			return 100 / a
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "callTwoReturns")
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewAnalyzer(nil)
+	findings := analyzer.Analyze(fn)
+	// Extract from multi-value calls yields Top → warns about possible div by zero.
+	// This is a known limitation — the analyzer doesn't track Extract yet.
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, "possible division by zero")
+}
