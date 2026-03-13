@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ahmedaabouzied/goprove/pkg/analysis"
+	"github.com/ahmedaabouzied/goprove/pkg/loader"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/go/ssa"
 )
@@ -5381,6 +5382,206 @@ func TestAnalyzeInterprocedural_NoCrash(t *testing.T) {
 			// Must not panic — that's the only assertion here.
 			analyzer := &analysis.Analyzer{}
 			_ = analyzer.Analyze(fn)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CHA Resolver tests — interface dispatch and multi-callee join
+// ---------------------------------------------------------------------------
+// These tests use loader.Load with testdata/interfaces.go because the
+// low-level buildSSA helper panics on method calls (SSA builder can't
+// handle method wrappers without the full packages.Load pipeline).
+
+func loadCHATestdata(t *testing.T) (*analysis.CHAResolver, *ssa.Package) {
+	t.Helper()
+	prog, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+	resolver := analysis.NewCHAResolver(prog)
+	return resolver, pkgs[0]
+}
+
+func TestAnalyzeCHA_InterfaceDispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"single implementation returns nonzero, division safe": {
+			fnName: "DivBySingleImpl",
+			checks: nil,
+		},
+
+		"single implementation returns zero, division is bug": {
+			fnName: "DivBySingleZeroImpl",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"two implementations both return nonzero, division safe": {
+			fnName: "DivByMultiNonzero",
+			checks: nil,
+		},
+
+		"two implementations both return zero, division is bug": {
+			fnName: "DivByDualZero",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+
+		"two implementations, one returns zero one returns nonzero, division is warning": {
+			fnName: "DivByMixedImpl",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+
+		"three implementations with mixed returns, join produces warning": {
+			fnName: "DivByTriMixed",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+
+		"interface method with param propagation": {
+			fnName: "CallComputerWithFive",
+			checks: nil,
+		},
+
+		"pointer receiver, CHA resolves it": {
+			fnName: "DivByPtrReceiver",
+			checks: nil,
+		},
+
+		"embedded interface implementation": {
+			fnName: "DivByEmbeddedIface",
+			checks: nil,
+		},
+
+		"no implementations, call returns Top, division warns": {
+			fnName: "DivByPhantom",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resolver, pkg := loadCHATestdata(t)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := analysis.NewAnalyzer(resolver)
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
+		})
+	}
+}
+
+// TestAnalyzeCHA_StaticCallsStillWork verifies that the CHA resolver
+// correctly handles direct (non-interface) function calls.
+func TestAnalyzeCHA_StaticCallsStillWork(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		fnName string
+		checks []struct {
+			severity analysis.Severity
+			message  string
+		}
+	}{
+		"static call to nonzero callee is safe": {
+			fnName: "DivBySafeCall",
+			checks: nil,
+		},
+		"static call to zero callee is bug": {
+			fnName: "DivByDecrement",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Bug, "division by zero"},
+			},
+		},
+		"static call to constant callee is safe": {
+			fnName: "DivByAlwaysTen",
+			checks: nil,
+		},
+		"static call with possible zero return warns": {
+			fnName: "DivByAbsOrZero",
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resolver, pkg := loadCHATestdata(t)
+			fn := findFunctionInPkg(pkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			analyzer := analysis.NewAnalyzer(resolver)
+			findings := analyzer.Analyze(fn)
+
+			if tt.checks == nil {
+				require.Empty(t, findings,
+					"expected no findings, got %d: %+v", len(findings), findings)
+				return
+			}
+
+			require.Len(t, findings, len(tt.checks),
+				"expected %d findings, got %d: %+v", len(tt.checks), len(findings), findings)
+
+			for i, check := range tt.checks {
+				require.Equal(t, check.severity, findings[i].Severity,
+					"finding[%d] severity mismatch", i)
+				require.Contains(t, findings[i].Message, check.message,
+					"finding[%d] message mismatch", i)
+			}
 		})
 	}
 }

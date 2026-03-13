@@ -327,6 +327,12 @@ func assertBlocks(t *testing.T, fnBlocks []*ssa.BasicBlock, actual []*ssa.BasicB
 }
 
 func buildSSA(t *testing.T, src string) *ssa.Package {
+	_, ssaPkg := buildSSAWithProgram(t, src)
+	return ssaPkg
+}
+
+func buildSSAWithProgram(t *testing.T, src string) (*ssa.Program, *ssa.Package) {
+	t.Helper()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "anything.go", src, 0)
 	require.NoError(t, err)
@@ -361,5 +367,5 @@ func buildSSA(t *testing.T, src string) *ssa.Package {
 	ssaPkg := prog.CreatePackage(pkg, []*ast.File{file}, info, false)
 	prog.Build()
 
-	return ssaPkg
+	return prog, ssaPkg
 }
