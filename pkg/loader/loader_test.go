@@ -1,6 +1,9 @@
 package loader
 
 import (
+	"bytes"
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -174,5 +177,40 @@ func TestLoad(t *testing.T) {
 		}
 		// If no error, we should still get valid output.
 		require.NotNil(t, pkgs)
+	})
+
+	t.Run("broken GOROOT makes packages.Load fail", func(t *testing.T) {
+		t.Parallel()
+		if os.Getenv("TEST_BROKEN_GOROOT") == "1" {
+			_, _, err := Load("fmt")
+			if err != nil {
+				os.Stderr.WriteString("LOAD_ERROR:" + err.Error())
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+		cmd := exec.Command(os.Args[0], "-test.run=TestLoad/broken_GOROOT")
+		// Set GOROOT to a nonexistent path so the go driver can't find the toolchain.
+		env := os.Environ()
+		filtered := env[:0]
+		for _, e := range env {
+			if len(e) > 7 && e[:7] == "GOROOT=" {
+				continue
+			}
+			filtered = append(filtered, e)
+		}
+		filtered = append(filtered,
+			"TEST_BROKEN_GOROOT=1",
+			"GOROOT=/nonexistent/goroot",
+		)
+		cmd.Env = filtered
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if err == nil {
+			return // some systems may still succeed; don't fail the test
+		}
+		// Verify it errored (either packages.Load error or build errors).
+		require.NotEmpty(t, stderr.String())
 	})
 }

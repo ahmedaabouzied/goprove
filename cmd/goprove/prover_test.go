@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"go/token"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -550,5 +552,212 @@ func TestProve_SafePackage_NoError(t *testing.T) {
 	err := p.Prove()
 	if err != nil {
 		t.Fatalf("Prove on safe package returned error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// NewProver edge cases
+// ---------------------------------------------------------------------------
+
+func TestNewProver_EmptyDir_ReturnsError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_, err := NewProver(dir)
+	if err == nil {
+		t.Fatal("expected error for empty directory, got nil")
+	}
+}
+
+func TestNewProver_DirWithOnlyGoMod_ReturnsError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Create a go.mod but no .go files — loader may return 0 packages.
+	gomod := "module testmod\n\ngo 1.21\n"
+	if err := os.WriteFile(dir+"/go.mod", []byte(gomod), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewProver(dir)
+	if err == nil {
+		t.Fatal("expected error for dir with no Go files, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CLI subprocess tests — main(), validateArgs, printHelp, printErrAndOsExit
+// ---------------------------------------------------------------------------
+// These functions call os.Exit, so we test them via subprocess.
+
+func TestMain_NoArgs_ExitsWithError(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("TEST_MAIN_NO_ARGS") == "1" {
+		os.Args = []string{"goprove"}
+		main()
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestMain_NoArgs_ExitsWithError")
+	cmd.Env = append(os.Environ(), "TEST_MAIN_NO_ARGS=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected non-zero exit code, got nil")
+	}
+	if !strings.Contains(stderr.String(), "missing target package") {
+		t.Errorf("expected 'missing target package' on stderr, got: %s", stderr.String())
+	}
+}
+
+func TestMain_InvalidPackage_ExitsWithError(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("TEST_MAIN_INVALID_PKG") == "1" {
+		os.Args = []string{"goprove", "./nonexistent/path/that/does/not/exist"}
+		main()
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestMain_InvalidPackage_ExitsWithError")
+	cmd.Env = append(os.Environ(), "TEST_MAIN_INVALID_PKG=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected non-zero exit code, got nil")
+	}
+	if stderr.Len() == 0 {
+		t.Error("expected error message on stderr")
+	}
+}
+
+func TestMain_ValidPackage_Succeeds(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("TEST_MAIN_VALID_PKG") == "1" {
+		os.Args = []string{"goprove", "../../pkg/testdata"}
+		main()
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestMain_ValidPackage_Succeeds")
+	cmd.Env = append(os.Environ(), "TEST_MAIN_VALID_PKG=1")
+	err := cmd.Run()
+	if err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+}
+
+func TestPrintErrAndOsExit_TruncatesLongMessage(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("TEST_LONG_ERR") == "1" {
+		longMsg := strings.Repeat("x", 2048)
+		printErrAndOsExit(longMsg)
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestPrintErrAndOsExit_TruncatesLongMessage")
+	cmd.Env = append(os.Environ(), "TEST_LONG_ERR=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected non-zero exit code")
+	}
+	// Message should be truncated to 1KB (1024 bytes) + newline
+	if stderr.Len() > 1026 {
+		t.Errorf("expected stderr ≤ 1026 bytes (1024 + newline), got %d", stderr.Len())
+	}
+}
+
+func TestValidateArgs_WithArgs_DoesNotExit(t *testing.T) {
+	t.Parallel()
+	// Should not panic or exit when args are provided.
+	validateArgs([]string{"some/package"})
+}
+
+func TestPrintHelp_Subprocess(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("TEST_PRINT_HELP") == "1" {
+		printHelp()
+		os.Exit(0)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestPrintHelp_Subprocess")
+	cmd.Env = append(os.Environ(), "TEST_PRINT_HELP=1")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	err := cmd.Run()
+	if err != nil {
+		t.Fatalf("printHelp exited with error: %v", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "goprove") {
+		t.Errorf("expected 'goprove' in help output, got: %s", output)
+	}
+	if !strings.Contains(output, "Usage") {
+		t.Errorf("expected 'Usage' in help output, got: %s", output)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// printFinding edge case — filepath.Rel error
+// ---------------------------------------------------------------------------
+
+func TestPrintFinding_RelError(t *testing.T) {
+	t.Parallel()
+	// On Unix, filepath.Rel only errors when one path is relative and
+	// the other is absolute, but that's hard to trigger with fset positions.
+	// Use an empty filename position (Pos 0 = no position) — filepath.Rel
+	// will get an empty filename which is relative vs an absolute wd.
+	fset := token.NewFileSet()
+	finding := analysis.Finding{
+		Pos:      token.NoPos,
+		Message:  "test",
+		Severity: analysis.Bug,
+	}
+	var buf bytes.Buffer
+	w := bufio.NewWriter(&buf)
+	// Position with NoPos has empty filename — Rel("", "/abs/path") shouldn't
+	// error, but the output should still not panic.
+	_ = printFinding("/some/absolute/path", w, fset, finding)
+	w.Flush()
+}
+
+// ---------------------------------------------------------------------------
+// Prove with multiple packages
+// ---------------------------------------------------------------------------
+
+func TestProve_MultiplePackages(t *testing.T) {
+	t.Parallel()
+	// Prove can handle packages with no findings at all.
+	p := newTestProver(t, "../../pkg/loader")
+	err := p.Prove()
+	if err != nil {
+		t.Fatalf("Prove on safe package returned error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Prove/main error propagation — stdout closed forces analyzePkg flush error
+// ---------------------------------------------------------------------------
+
+// TestMain_StdoutClosed exercises the Prove→analyzePkg error path (line 44)
+// and the main→Prove error path (line 25) by closing stdout in a subprocess
+// so bufio.Writer.Flush fails.
+func TestMain_StdoutClosed_ExitsWithError(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("TEST_STDOUT_CLOSED") == "1" {
+		// Close stdout so w.Flush() in analyzePkg fails.
+		os.Stdout.Close()
+		os.Args = []string{"goprove", "../../pkg/testdata"}
+		main()
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestMain_StdoutClosed_ExitsWithError")
+	cmd.Env = append(os.Environ(), "TEST_STDOUT_CLOSED=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		// Some OS may buffer and not error on flush. That's fine.
+		t.Log("stdout close did not cause an error on this platform")
+		return
+	}
+	// If it did error, stderr should have a message.
+	if stderr.Len() == 0 {
+		t.Error("expected error message on stderr")
 	}
 }

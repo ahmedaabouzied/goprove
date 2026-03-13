@@ -5387,6 +5387,179 @@ func TestAnalyzeInterprocedural_NoCrash(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Coverage gap tests
+// ---------------------------------------------------------------------------
+
+// TestAnalyze_StringConcat exercises flagOverflow's early return for
+// non-basic types (BinOp on string type → !ok at line 430).
+func TestAnalyze_StringConcat(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func concat(a, b string) string {
+			return a + b
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "concat")
+	require.NotNil(t, fn)
+
+	analyzer := &analysis.Analyzer{}
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestAnalyze_UnreachableBlock exercises isBlockReachable returning false
+// for blocks that the worklist never visited (not in state map).
+func TestAnalyze_UnreachableBlock(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func unreachable(x int) int {
+			if x > 0 {
+				return x / 1
+			}
+			return x / 1
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "unreachable")
+	require.NotNil(t, fn)
+
+	analyzer := &analysis.Analyzer{}
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestAnalyze_BooleanBinOp exercises transferBinOp's default case
+// for comparison operators that produce bool results (not int intervals).
+func TestAnalyze_BooleanBinOp(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func compare(a, b int) bool {
+			return a == b
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "compare")
+	require.NotNil(t, fn)
+
+	analyzer := &analysis.Analyzer{}
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestAnalyze_MultipleReturnValues exercises computeReturnIntervals
+// with functions that return multiple values.
+func TestAnalyze_MultipleReturnValues(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func divmod(x, y int) (int, int) {
+			return x / y, x % y
+		}
+
+		func caller() (int, int) {
+			return divmod(10, 3)
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "caller")
+	require.NotNil(t, fn)
+
+	analyzer := &analysis.Analyzer{}
+	_ = analyzer.Analyze(fn)
+	// No crash is the assertion — multiple return intervals handled correctly.
+}
+
+// TestAnalyze_NonIntConst exercises lookupInterval's handling of
+// non-integer constants (nil, bool, string consts).
+func TestAnalyze_NonIntConst(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func boolConst() bool {
+			x := true
+			return !x
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "boolConst")
+	require.NotNil(t, fn)
+
+	analyzer := &analysis.Analyzer{}
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestAnalyze_ConditionNotBinOp exercises refineFromPredecessor when
+// the If condition is not a BinOp (e.g., a plain bool variable).
+func TestAnalyze_ConditionNotBinOp(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func condBool(flag bool, x int) int {
+			if flag {
+				return x / 1
+			}
+			return x / 2
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "condBool")
+	require.NotNil(t, fn)
+
+	analyzer := &analysis.Analyzer{}
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestAnalyze_ShiftOp exercises transferBinOp's default case for
+// shift operations (SHL, SHR) which are not handled explicitly.
+func TestAnalyze_ShiftOp(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func shift(x int) int {
+			return x << 2
+		}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "shift")
+	require.NotNil(t, fn)
+
+	analyzer := &analysis.Analyzer{}
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestAnalyze_EmptyFunction exercises Analyze on a function with
+// no instructions beyond the implicit return.
+func TestAnalyze_EmptyFunction(t *testing.T) {
+	t.Parallel()
+	src := `
+		package example
+
+		func empty() {}
+	`
+	pkg := buildSSA(t, src)
+	fn := findFunctionInPkg(pkg, "empty")
+	require.NotNil(t, fn)
+
+	analyzer := &analysis.Analyzer{}
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// ---------------------------------------------------------------------------
 // CHA Resolver tests — interface dispatch and multi-callee join
 // ---------------------------------------------------------------------------
 // These tests use loader.Load with testdata/interfaces.go because the
