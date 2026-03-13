@@ -8,9 +8,31 @@ import (
 	"testing"
 
 	"github.com/ahmedaabouzied/goprove/pkg/analysis"
-	"github.com/ahmedaabouzied/goprove/pkg/loader"
 	"golang.org/x/tools/go/ssa"
 )
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+
+func newTestProver(t *testing.T, path string) *Prover {
+	t.Helper()
+	p, err := NewProver(path)
+	if err != nil {
+		t.Fatalf("NewProver(%s): %v", path, err)
+	}
+	return p
+}
+
+func findFunction(pkg *ssa.Package, name string) *ssa.Function {
+	for _, member := range pkg.Members {
+		fn, ok := member.(*ssa.Function)
+		if ok && fn.Name() == name {
+			return fn
+		}
+	}
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // printFinding tests
@@ -226,38 +248,16 @@ func TestPrintFinding_MultipleFindings_EachOnOwnLine(t *testing.T) {
 // analyzeFunction tests
 // ---------------------------------------------------------------------------
 
-func loadTestdataFunctions(t *testing.T, pattern string) (*ssa.Program, []*ssa.Package) {
-	t.Helper()
-	prog, pkgs, err := loader.Load(pattern)
-	if err != nil {
-		t.Fatalf("failed to load testdata: %v", err)
-	}
-	if len(pkgs) == 0 {
-		t.Fatal("no packages loaded")
-	}
-	return prog, pkgs
-}
-
-func findFunction(pkg *ssa.Package, name string) *ssa.Function {
-	for _, member := range pkg.Members {
-		fn, ok := member.(*ssa.Function)
-		if ok && fn.Name() == name {
-			return fn
-		}
-	}
-	return nil
-}
-
 func TestAnalyzeFunction_DivByZeroLiteral(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
-	fn := findFunction(pkgs[0], "DivByZeroLiteral")
+	fn := findFunction(p.pkgs[0], "DivByZeroLiteral")
 	if fn == nil {
 		t.Fatal("function DivByZeroLiteral not found")
 	}
 
-	findings := analyzeFunction(fn)
+	findings := p.analyzeFunction(fn)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -271,14 +271,14 @@ func TestAnalyzeFunction_DivByZeroLiteral(t *testing.T) {
 
 func TestAnalyzeFunction_DivSafe_NoFindings(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
-	fn := findFunction(pkgs[0], "DivSafe")
+	fn := findFunction(p.pkgs[0], "DivSafe")
 	if fn == nil {
 		t.Fatal("function DivSafe not found")
 	}
 
-	findings := analyzeFunction(fn)
+	findings := p.analyzeFunction(fn)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for safe function, got %d: %+v", len(findings), findings)
 	}
@@ -286,14 +286,14 @@ func TestAnalyzeFunction_DivSafe_NoFindings(t *testing.T) {
 
 func TestAnalyzeFunction_DivByParam_Warning(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
-	fn := findFunction(pkgs[0], "DivByParam")
+	fn := findFunction(p.pkgs[0], "DivByParam")
 	if fn == nil {
 		t.Fatal("function DivByParam not found")
 	}
 
-	findings := analyzeFunction(fn)
+	findings := p.analyzeFunction(fn)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -307,14 +307,14 @@ func TestAnalyzeFunction_DivByParam_Warning(t *testing.T) {
 
 func TestAnalyzeFunction_DivByConstant_Safe(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
-	fn := findFunction(pkgs[0], "DivByConstant")
+	fn := findFunction(p.pkgs[0], "DivByConstant")
 	if fn == nil {
 		t.Fatal("function DivByConstant not found")
 	}
 
-	findings := analyzeFunction(fn)
+	findings := p.analyzeFunction(fn)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for constant divisor, got %d: %+v", len(findings), findings)
 	}
@@ -322,14 +322,14 @@ func TestAnalyzeFunction_DivByConstant_Safe(t *testing.T) {
 
 func TestAnalyzeFunction_ModByZero_Bug(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
-	fn := findFunction(pkgs[0], "ModByZero")
+	fn := findFunction(p.pkgs[0], "ModByZero")
 	if fn == nil {
 		t.Fatal("function ModByZero not found")
 	}
 
-	findings := analyzeFunction(fn)
+	findings := p.analyzeFunction(fn)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -340,14 +340,14 @@ func TestAnalyzeFunction_ModByZero_Bug(t *testing.T) {
 
 func TestAnalyzeFunction_DivInLoop_Warning(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
-	fn := findFunction(pkgs[0], "DivInLoop")
+	fn := findFunction(p.pkgs[0], "DivInLoop")
 	if fn == nil {
 		t.Fatal("function DivInLoop not found")
 	}
 
-	findings := analyzeFunction(fn)
+	findings := p.analyzeFunction(fn)
 	if len(findings) < 1 {
 		t.Fatal("expected at least 1 finding for division in loop")
 	}
@@ -365,14 +365,14 @@ func TestAnalyzeFunction_DivInLoop_Warning(t *testing.T) {
 
 func TestAnalyzeFunction_NoDivision_NoFindings(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
 	for _, name := range []string{"Add", "Multiply", "Constant", "LocalVar"} {
-		fn := findFunction(pkgs[0], name)
+		fn := findFunction(p.pkgs[0], name)
 		if fn == nil {
 			t.Fatalf("function %s not found", name)
 		}
-		findings := analyzeFunction(fn)
+		findings := p.analyzeFunction(fn)
 		if len(findings) != 0 {
 			t.Errorf("%s: expected 0 findings, got %d: %+v", name, len(findings), findings)
 		}
@@ -381,14 +381,14 @@ func TestAnalyzeFunction_NoDivision_NoFindings(t *testing.T) {
 
 func TestAnalyzeFunction_BranchFunctions_NoFindings(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
 	for _, name := range []string{"Abs", "Clamp", "Max", "Sign"} {
-		fn := findFunction(pkgs[0], name)
+		fn := findFunction(p.pkgs[0], name)
 		if fn == nil {
 			t.Fatalf("function %s not found", name)
 		}
-		findings := analyzeFunction(fn)
+		findings := p.analyzeFunction(fn)
 		if len(findings) != 0 {
 			t.Errorf("%s: expected 0 findings, got %d: %+v", name, len(findings), findings)
 		}
@@ -397,14 +397,14 @@ func TestAnalyzeFunction_BranchFunctions_NoFindings(t *testing.T) {
 
 func TestAnalyzeFunction_LoopFunctions_NoFindings(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
 	for _, name := range []string{"Sum", "Countdown", "Nested"} {
-		fn := findFunction(pkgs[0], name)
+		fn := findFunction(p.pkgs[0], name)
 		if fn == nil {
 			t.Fatalf("function %s not found", name)
 		}
-		findings := analyzeFunction(fn)
+		findings := p.analyzeFunction(fn)
 		if len(findings) != 0 {
 			t.Errorf("%s: expected 0 findings, got %d: %+v", name, len(findings), findings)
 		}
@@ -417,19 +417,17 @@ func TestAnalyzeFunction_LoopFunctions_NoFindings(t *testing.T) {
 
 func TestAnalyzePkg_SortOrder_BugsBeforeWarnings(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
-	// Collect all findings from the package.
 	findings := []analysis.Finding{}
-	for _, member := range pkgs[0].Members {
+	for _, member := range p.pkgs[0].Members {
 		fn, ok := member.(*ssa.Function)
 		if !ok {
 			continue
 		}
-		findings = append(findings, analyzeFunction(fn)...)
+		findings = append(findings, p.analyzeFunction(fn)...)
 	}
 
-	// Apply the same sort as analyzePkg.
 	sortFindingsForTest(findings)
 
 	// Verify: all Bugs come before all Warnings.
@@ -446,15 +444,15 @@ func TestAnalyzePkg_SortOrder_BugsBeforeWarnings(t *testing.T) {
 
 func TestAnalyzePkg_SortOrder_SourceOrderWithinSeverity(t *testing.T) {
 	t.Parallel()
-	_, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
 	findings := []analysis.Finding{}
-	for _, member := range pkgs[0].Members {
+	for _, member := range p.pkgs[0].Members {
 		fn, ok := member.(*ssa.Function)
 		if !ok {
 			continue
 		}
-		findings = append(findings, analyzeFunction(fn)...)
+		findings = append(findings, p.analyzeFunction(fn)...)
 	}
 
 	sortFindingsForTest(findings)
@@ -479,21 +477,21 @@ func TestAnalyzePkg_SortOrder_SourceOrderWithinSeverity(t *testing.T) {
 
 func TestAnalyzePkg_CollectsAllFindings(t *testing.T) {
 	t.Parallel()
-	prog, pkgs := loadTestdataFunctions(t, "../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
 
 	findings := []analysis.Finding{}
-	for _, member := range pkgs[0].Members {
+	for _, member := range p.pkgs[0].Members {
 		fn, ok := member.(*ssa.Function)
 		if !ok {
 			continue
 		}
-		findings = append(findings, analyzeFunction(fn)...)
+		findings = append(findings, p.analyzeFunction(fn)...)
 	}
 
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
 	for _, finding := range findings {
-		_ = printFinding("/tmp", w, prog.Fset, finding)
+		_ = printFinding("/tmp", w, p.prog.Fset, finding)
 	}
 	w.Flush()
 
@@ -526,29 +524,31 @@ func sortFindingsForTest(findings []analysis.Finding) {
 }
 
 // ---------------------------------------------------------------------------
-// provePackage integration tests
+// Prove integration tests
 // ---------------------------------------------------------------------------
 
-func TestProvePackage_ValidTestdata(t *testing.T) {
+func TestProve_ValidTestdata(t *testing.T) {
 	t.Parallel()
-	err := provePackage("../../pkg/testdata")
+	p := newTestProver(t, "../../pkg/testdata")
+	err := p.Prove()
 	if err != nil {
-		t.Fatalf("provePackage returned error: %v", err)
+		t.Fatalf("Prove returned error: %v", err)
 	}
 }
 
-func TestProvePackage_NonexistentPath(t *testing.T) {
+func TestProve_NonexistentPath(t *testing.T) {
 	t.Parallel()
-	err := provePackage("./nonexistent/path/that/does/not/exist")
+	_, err := NewProver("./nonexistent/path/that/does/not/exist")
 	if err == nil {
 		t.Error("expected error for nonexistent path, got nil")
 	}
 }
 
-func TestProvePackage_SafePackage_NoError(t *testing.T) {
+func TestProve_SafePackage_NoError(t *testing.T) {
 	t.Parallel()
-	err := provePackage("../../pkg/loader")
+	p := newTestProver(t, "../../pkg/loader")
+	err := p.Prove()
 	if err != nil {
-		t.Fatalf("provePackage on safe package returned error: %v", err)
+		t.Fatalf("Prove on safe package returned error: %v", err)
 	}
 }

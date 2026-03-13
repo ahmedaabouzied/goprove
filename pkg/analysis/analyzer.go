@@ -18,6 +18,7 @@ type Analyzer struct {
 
 	callDepth    int
 	maxCallDepth int
+	resolver     *CHAResolver // nil = fallback to StaticCallee only resolver
 
 	findings []Finding
 	err      error
@@ -38,6 +39,12 @@ const (
 )
 
 const maxIterations = 1000
+
+func NewAnalyzer(resolver *CHAResolver) *Analyzer {
+	return &Analyzer{
+		resolver: resolver,
+	}
+}
 
 func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 	a.state = make(map[*ssa.BasicBlock]map[ssa.Value]Interval)
@@ -247,9 +254,8 @@ func (a *Analyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 
 func (a *Analyzer) transferCall(block *ssa.BasicBlock, v *ssa.Call) {
 	// Get the callee
-	callee := v.Call.StaticCallee()
-	if callee == nil {
-		// A closure.
+	callees := a.resolveCallees(v)
+	if len(callees) == 0 {
 		a.state[block][v] = Top()
 		return
 	}
@@ -258,12 +264,25 @@ func (a *Analyzer) transferCall(block *ssa.BasicBlock, v *ssa.Call) {
 	for i, arg := range v.Call.Args {
 		args[i] = a.lookupInterval(block, arg)
 	}
-	summary := a.lookupOrComputeSummary(callee, args)
-	if len(summary.Returns) > 0 {
-		a.state[block][v] = summary.Returns[0]
-	} else {
-		a.state[block][v] = Top()
+
+	result := Bottom()
+	for _, callee := range callees {
+		summary := a.lookupOrComputeSummary(callee, args)
+		if len(summary.Returns) > 0 {
+			result = result.Join(summary.Returns[0])
+		}
 	}
+	a.state[block][v] = result
+}
+
+func (a *Analyzer) resolveCallees(v *ssa.Call) []*ssa.Function {
+	if a.resolver != nil {
+		return a.resolver.Resolve(v)
+	}
+	if callee := v.Call.StaticCallee(); callee != nil {
+		return []*ssa.Function{callee}
+	}
+	return nil
 }
 
 func (a *Analyzer) lookupOrComputeSummary(callee *ssa.Function, args []Interval) FunctionSummary {
@@ -279,6 +298,7 @@ func (a *Analyzer) lookupOrComputeSummary(callee *ssa.Function, args []Interval)
 		}
 	}
 	child := Analyzer{
+		resolver:       a.resolver,
 		summaries:      a.summaries, // Inherit summaries from callee
 		paramOverrides: args,
 		callDepth:      a.callDepth + 1,

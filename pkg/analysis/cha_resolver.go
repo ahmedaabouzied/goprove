@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 
 	"golang.org/x/tools/go/callgraph"
@@ -41,34 +42,34 @@ func (r *CHAResolver) Resolve(call ssa.CallInstruction) []*ssa.Function {
 }
 
 func (r *CHAResolver) String() {
-	bufio.NewWriter(os.Stdout)
-	for _, pkg := range prog.AllPackages() {
+	w := bufio.NewWriter(os.Stdout)
+	for _, pkg := range r.prog.AllPackages() {
 		for name, member := range pkg.Members {
 			fn, ok := member.(*ssa.Function)
 			if !ok {
 				continue
 			}
-			node, ok := cg.Nodes[fn]
+			node, ok := r.graph.Nodes[fn]
 			if !ok {
 				continue
 			}
 			if node == nil {
-				fmt.Printf("%s not in callgrpah\n", name)
+				fmt.Fprintf(w, "%s not in callgrpah\n", name)
 				continue
 			}
 
-			fmt.Printf("Function %s\n", name)
+			fmt.Fprintf(w, "Function %s\n", name)
 			for _, param := range fn.Params {
-				fmt.Printf(" Param %s %s\n", param.Name(), param.Type().String())
+				fmt.Fprintf(w, " Param %s %s\n", param.Name(), param.Type().String())
 			}
-			fmt.Printf("   Callers: \n")
+			fmt.Fprintf(w, "   Callers: \n")
 			for _, edge := range node.In {
 				fmt.Printf("    <- %s\n", edge.Caller.Func.RelString(pkg.Pkg))
 			}
-			fmt.Printf("  Callees: \n")
+			fmt.Fprintf(w, "  Callees: \n")
 
 			for _, edge := range node.Out {
-				fmt.Printf("    -> %s  [site: %s]\n",
+				fmt.Fprintf(w, "    -> %s  [site: %s]\n",
 					edge.Callee.Func.RelString(pkg.Pkg),
 					edge.Site, // the call instruction (ssa.CallInstruction)
 				)

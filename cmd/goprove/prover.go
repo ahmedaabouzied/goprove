@@ -13,30 +13,42 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
+type Prover struct {
+	path     string
+	analyzer *analysis.Analyzer
+	prog     *ssa.Program
+	pkgs     []*ssa.Package
+}
+
+func NewProver(path string) (*Prover, error) {
+	prog, pkgs, err := loader.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(pkgs) < 1 {
+		return nil, fmt.Errorf("no packages found at %s", path)
+	}
+	resolver := analysis.NewCHAResolver(prog)
+	analyzer := analysis.NewAnalyzer(resolver)
+	return &Prover{path, analyzer, prog, pkgs}, nil
+}
+
 // provePackage is the main entry point for our prover.
-func provePackage(path string) error {
+func (p *Prover) Prove() error {
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 
-	prog, pkgs, err := loader.Load(path)
-	if err != nil {
-		return err
-	}
-	if len(pkgs) < 1 {
-		return fmt.Errorf("no packages found at %s", path)
-	}
-
-	for _, pkg := range pkgs {
-		if err := analyzePkg(wd, prog.Fset, pkg); err != nil {
+	for _, pkg := range p.pkgs {
+		if err := p.analyzePkg(wd, p.prog.Fset, pkg); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func analyzePkg(wd string, fset *token.FileSet, pkg *ssa.Package) error {
+func (p *Prover) analyzePkg(wd string, fset *token.FileSet, pkg *ssa.Package) error {
 	findings := []analysis.Finding{}
 
 	for _, member := range pkg.Members {
@@ -44,7 +56,7 @@ func analyzePkg(wd string, fset *token.FileSet, pkg *ssa.Package) error {
 		if !ok {
 			continue
 		}
-		findings = append(findings, analyzeFunction(fn)...)
+		findings = append(findings, p.analyzeFunction(fn)...)
 	}
 
 	// sort findings
@@ -65,9 +77,8 @@ func analyzePkg(wd string, fset *token.FileSet, pkg *ssa.Package) error {
 	return w.Flush()
 }
 
-func analyzeFunction(fn *ssa.Function) []analysis.Finding {
-	analyzer := analysis.Analyzer{}
-	return analyzer.Analyze(fn)
+func (p *Prover) analyzeFunction(fn *ssa.Function) []analysis.Finding {
+	return p.analyzer.Analyze(fn)
 }
 
 func printFinding(wd string, w *bufio.Writer, fset *token.FileSet, finding analysis.Finding) error {

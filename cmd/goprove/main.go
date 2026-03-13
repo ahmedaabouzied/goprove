@@ -18,8 +18,11 @@ func main() {
 
 	targetPackage := args[0]
 
-	err := provePackage(targetPackage)
+	p, err := NewProver(targetPackage)
 	if err != nil {
+		printErrAndOsExit(err.Error())
+	}
+	if err := p.Prove(); err != nil {
 		printErrAndOsExit(err.Error())
 	}
 }
