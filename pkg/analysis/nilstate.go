@@ -64,3 +64,22 @@ func (s NilState) Join(other NilState) NilState {
 		return NilBottom
 	}
 }
+
+func (s NilState) Meet(other NilState) NilState {
+	/*
+			Meet lookup table
+		  ┌──────────┬──────────┬──────────┬──────────┬──────────┐
+		  │   Meet   │  Bottom  │   Nil    │  NonNil  │ MaybeNil │
+		  ├──────────┼──────────┼──────────┼──────────┼──────────┤
+		  │ Bottom   │ Bottom   │ Bottom   │ Bottom   │ Bottom   │
+		  ├──────────┼──────────┼──────────┼──────────┼──────────┤
+		  │ Nil      │ Bottom   │ Nil      │ Bottom   │ Nil      │
+		  ├──────────┼──────────┼──────────┼──────────┼──────────┤
+		  │ NonNil   │ Bottom   │ Bottom   │ NonNil   │ NonNil   │
+		  ├──────────┼──────────┼──────────┼──────────┼──────────┤
+		  │ MaybeNil │ Bottom   │ Nil      │ NonNil   │ MaybeNil │
+		  └──────────┴──────────┴──────────┴──────────┴──────────┘
+	*/
+	// TODO: Implement it
+	return NilBottom
+}
