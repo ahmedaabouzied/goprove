@@ -46,8 +46,6 @@ func (s NilState) Join(other NilState) NilState {
 			return MaybeNil
 		case MaybeNil:
 			return MaybeNil
-		default:
-			return NilBottom
 		}
 	case s == DefinitelyNotNil:
 		switch other {
@@ -60,9 +58,10 @@ func (s NilState) Join(other NilState) NilState {
 		default:
 			return NilBottom
 		}
-	default:
-		return NilBottom
 	}
+
+	// Default
+	return NilBottom
 }
 
 func (s NilState) Meet(other NilState) NilState {
@@ -80,6 +79,42 @@ func (s NilState) Meet(other NilState) NilState {
 		  │ MaybeNil │ Bottom   │ Nil      │ NonNil   │ MaybeNil │
 		  └──────────┴──────────┴──────────┴──────────┴──────────┘
 	*/
-	// TODO: Implement it
+	switch {
+	case s == NilBottom:
+		return NilBottom
+	case other == NilBottom:
+		return NilBottom
+
+	case s == DefinitelyNil:
+		switch other {
+		case DefinitelyNil:
+			return DefinitelyNil
+		case DefinitelyNotNil:
+			return NilBottom
+		case MaybeNil:
+			return DefinitelyNil
+		}
+
+	case s == DefinitelyNotNil:
+		switch other {
+		case DefinitelyNil:
+			return NilBottom
+		case DefinitelyNotNil:
+			return DefinitelyNotNil
+		case MaybeNil:
+			return DefinitelyNotNil
+		}
+
+	case s == MaybeNil:
+		switch other {
+		case DefinitelyNil:
+			return DefinitelyNil
+		case DefinitelyNotNil:
+			return DefinitelyNotNil
+		case MaybeNil:
+			return MaybeNil
+		}
+	}
+
 	return NilBottom
 }
