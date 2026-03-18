@@ -28,40 +28,16 @@ func (s NilState) Join(other NilState) NilState {
 		  │ MaybeNil │ MaybeNil │ MaybeNil │ MaybeNil │ MaybeNil │
 		  └──────────┴──────────┴──────────┴──────────┴──────────┘
 	*/
-	switch {
-	case s == NilBottom:
-		return other
-	case other == NilBottom:
+	if s == other {
 		return s
-
-	case s == MaybeNil:
-		return MaybeNil
-
-	case s == DefinitelyNil:
-		switch other {
-		// NilBottom has been handled earlier
-		case DefinitelyNil:
-			return DefinitelyNil
-		case DefinitelyNotNil:
-			return MaybeNil
-		case MaybeNil:
-			return MaybeNil
-		}
-	case s == DefinitelyNotNil:
-		switch other {
-		case DefinitelyNotNil:
-			return DefinitelyNotNil
-		case DefinitelyNil:
-			return MaybeNil
-		case MaybeNil:
-			return MaybeNil
-		default:
-			return NilBottom
-		}
 	}
-
-	// Default
-	return NilBottom
+	if s == NilBottom {
+		return other
+	}
+	if other == NilBottom {
+		return s
+	}
+	return MaybeNil // Nil+NonNil, or either is MaybeNil
 }
 
 func (s NilState) Meet(other NilState) NilState {
@@ -79,42 +55,18 @@ func (s NilState) Meet(other NilState) NilState {
 		  │ MaybeNil │ Bottom   │ Nil      │ NonNil   │ MaybeNil │
 		  └──────────┴──────────┴──────────┴──────────┴──────────┘
 	*/
-	switch {
-	case s == NilBottom:
-		return NilBottom
-	case other == NilBottom:
-		return NilBottom
-
-	case s == DefinitelyNil:
-		switch other {
-		case DefinitelyNil:
-			return DefinitelyNil
-		case DefinitelyNotNil:
-			return NilBottom
-		case MaybeNil:
-			return DefinitelyNil
-		}
-
-	case s == DefinitelyNotNil:
-		switch other {
-		case DefinitelyNil:
-			return NilBottom
-		case DefinitelyNotNil:
-			return DefinitelyNotNil
-		case MaybeNil:
-			return DefinitelyNotNil
-		}
-
-	case s == MaybeNil:
-		switch other {
-		case DefinitelyNil:
-			return DefinitelyNil
-		case DefinitelyNotNil:
-			return DefinitelyNotNil
-		case MaybeNil:
-			return MaybeNil
-		}
+	// Simplified:
+	if s == other {
+		return s
 	}
-
+	if s == NilBottom || other == NilBottom {
+		return NilBottom
+	}
+	if s == MaybeNil {
+		return other
+	}
+	if other == MaybeNil {
+		return s
+	}
 	return NilBottom
 }
