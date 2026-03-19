@@ -34,6 +34,32 @@ func (a *NilAnalyzer) lookupNilState(block *ssa.BasicBlock, v ssa.Value) NilStat
 	return MaybeNil
 }
 
+func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instruction) {
+	switch v := instr.(type) {
+	case *ssa.Alloc:
+		a.state[block][v] = DefinitelyNotNil
+	case *ssa.MakeInterface:
+		a.state[block][v] = DefinitelyNotNil
+	case *ssa.MakeSlice:
+		a.state[block][v] = DefinitelyNotNil
+	case *ssa.MakeMap:
+		a.state[block][v] = DefinitelyNotNil
+	case *ssa.MakeChan:
+		a.state[block][v] = DefinitelyNotNil
+	case *ssa.Phi:
+		a.transferPhi(block, v)
+	}
+}
+
+func (a *NilAnalyzer) transferPhi(block *ssa.BasicBlock, instr *ssa.Phi) {
+	res := NilBottom
+	for i, edge := range instr.Edges {
+		pred := block.Preds[i]
+		res = res.Join(a.lookupNilState(pred, edge))
+	}
+	a.state[block][instr] = res
+}
+
 func isNillable(v ssa.Value) bool {
 	switch v.Type().Underlying().(type) {
 	case *types.Pointer,

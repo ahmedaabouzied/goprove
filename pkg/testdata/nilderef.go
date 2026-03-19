@@ -51,3 +51,84 @@ func MapLookupOk(m map[string]*int, key string) int {
 	}
 	return 0
 }
+
+// ---------------------------------------------------------------------------
+// Fixtures for transfer function tests
+// ---------------------------------------------------------------------------
+
+// AllocNew tests that new(T) produces a non-nil pointer.
+func AllocNew() *int {
+	p := new(int)
+	return p
+}
+
+// AllocAddr tests that &x produces a non-nil pointer.
+func AllocAddr() *int {
+	x := 42
+	return &x
+}
+
+// MakeSliceFixture tests that make([]T, n) is non-nil.
+// Uses a parameter for length to prevent SSA from optimizing away the MakeSlice.
+func MakeSliceFixture(n int) []int {
+	return make([]int, n)
+}
+
+// MakeSliceCapFixture tests that make([]T, n, cap) is non-nil.
+// Uses parameters for length and cap to prevent SSA from optimizing away the MakeSlice.
+func MakeSliceCapFixture(n, cap int) []byte {
+	return make([]byte, n, cap)
+}
+
+// MakeMapFixture tests that make(map[K]V) is non-nil.
+func MakeMapFixture() map[string]int {
+	return make(map[string]int)
+}
+
+// MakeMapHintFixture tests that make(map[K]V, hint) is non-nil.
+func MakeMapHintFixture() map[string]int {
+	return make(map[string]int, 100)
+}
+
+// MakeChanFixture tests that make(chan T) is non-nil.
+func MakeChanFixture() chan int {
+	return make(chan int)
+}
+
+// MakeChanBufFixture tests that make(chan T, size) is non-nil.
+func MakeChanBufFixture() chan string {
+	return make(chan string, 10)
+}
+
+// PhiBothNotNil tests a Phi where both branches produce non-nil.
+func PhiBothNotNil(cond bool) *int {
+	var p *int
+	if cond {
+		x := 1
+		p = &x
+	} else {
+		y := 2
+		p = &y
+	}
+	return p
+}
+
+// PhiOneBranchNil tests a Phi where one branch is nil (default var)
+// and the other is non-nil.
+func PhiOneBranchNil(cond bool) *int {
+	var p *int
+	if cond {
+		x := 1
+		p = &x
+	}
+	return p
+}
+
+// PhiAllNil tests a Phi where all branches are nil.
+func PhiAllNil(cond bool) *int {
+	var p *int
+	if cond {
+		p = nil
+	}
+	return p
+}

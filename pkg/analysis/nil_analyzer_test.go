@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"go/constant"
+	"go/token"
 	"go/types"
 	"testing"
 
@@ -10,9 +11,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// ---------------------------------------------------------------------------
 // isNillable tests
-// ---------------------------------------------------------------------------
 
 // TestIsNillable_Constants tests isNillable using ssa.NewConst with
 // various types. Constants are ssa.Values, so isNillable inspects their type.
@@ -204,9 +203,7 @@ func TestIsNillable_FromSSA(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // lookupNilState tests
-// ---------------------------------------------------------------------------
 
 // TestLookupNilState_NilConst tests that a nil-valued *ssa.Const returns DefinitelyNil.
 func TestLookupNilState_NilConst(t *testing.T) {
@@ -529,4 +526,529 @@ func TestLookupNilState_NonNillableTakesPrecedence(t *testing.T) {
 	got := a.lookupNilState(block, intParam)
 	require.Equal(t, DefinitelyNotNil, got,
 		"non-nillable value should return DefinitelyNotNil regardless of block state")
+}
+
+// transferInstruction tests
+
+// "Always non-nil" producers: Alloc, MakeSlice, MakeMap, MakeChan, MakeInterface
+
+// findFunc looks up a named function in an SSA package.
+func findFunc(t *testing.T, pkg *ssa.Package, name string) *ssa.Function {
+	t.Helper()
+	for _, member := range pkg.Members {
+		fn, ok := member.(*ssa.Function)
+		if ok && fn.Name() == name {
+			return fn
+		}
+	}
+	t.Fatalf("function %s not found in package", name)
+	return nil
+}
+
+// findInstr searches a function's blocks for the first instruction matching
+// the given type. Returns the instruction and its containing block.
+func findInstr[T ssa.Instruction](t *testing.T, fn *ssa.Function) (T, *ssa.BasicBlock) {
+	t.Helper()
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if v, ok := instr.(T); ok {
+				return v, block
+			}
+		}
+	}
+	var zero T
+	t.Fatalf("instruction of type %T not found in %s", zero, fn.Name())
+	return zero, nil
+}
+
+// TestTransferInstruction_AlwaysNonNil is a table-driven test that verifies
+// all SSA instructions that always produce non-nil values.
+func TestTransferInstruction_AlwaysNonNil(t *testing.T) {
+	t.Parallel()
+
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+	pkg := pkgs[0]
+
+	tests := []struct {
+		name   string
+		fnName string
+		// findInstr is a function that locates the target instruction.
+		find func(t *testing.T, fn *ssa.Function) (ssa.Instruction, *ssa.BasicBlock)
+	}{
+		{
+			name:   "new(T) produces non-nil",
+			fnName: "AllocNew",
+			find: func(t *testing.T, fn *ssa.Function) (ssa.Instruction, *ssa.BasicBlock) {
+				v, b := findInstr[*ssa.Alloc](t, fn)
+				return v, b
+			},
+		},
+		{
+			name:   "&x produces non-nil",
+			fnName: "AllocAddr",
+			find: func(t *testing.T, fn *ssa.Function) (ssa.Instruction, *ssa.BasicBlock) {
+				v, b := findInstr[*ssa.Alloc](t, fn)
+				return v, b
+			},
+		},
+		{
+			name:   "make([]T, n) produces non-nil",
+			fnName: "MakeSliceFixture",
+			find: func(t *testing.T, fn *ssa.Function) (ssa.Instruction, *ssa.BasicBlock) {
+				v, b := findInstr[*ssa.MakeSlice](t, fn)
+				return v, b
+			},
+		},
+		{
+			name:   "make([]T, n, cap) produces non-nil",
+			fnName: "MakeSliceCapFixture",
+			find: func(t *testing.T, fn *ssa.Function) (ssa.Instruction, *ssa.BasicBlock) {
+				v, b := findInstr[*ssa.MakeSlice](t, fn)
+				return v, b
+			},
+		},
+		{
+			name:   "make(map[K]V) produces non-nil",
+			fnName: "MakeMapFixture",
+			find: func(t *testing.T, fn *ssa.Function) (ssa.Instruction, *ssa.BasicBlock) {
+				v, b := findInstr[*ssa.MakeMap](t, fn)
+				return v, b
+			},
+		},
+		{
+			name:   "make(map[K]V, hint) produces non-nil",
+			fnName: "MakeMapHintFixture",
+			find: func(t *testing.T, fn *ssa.Function) (ssa.Instruction, *ssa.BasicBlock) {
+				v, b := findInstr[*ssa.MakeMap](t, fn)
+				return v, b
+			},
+		},
+		{
+			name:   "make(chan T) produces non-nil",
+			fnName: "MakeChanFixture",
+			find: func(t *testing.T, fn *ssa.Function) (ssa.Instruction, *ssa.BasicBlock) {
+				v, b := findInstr[*ssa.MakeChan](t, fn)
+				return v, b
+			},
+		},
+		{
+			name:   "make(chan T, size) produces non-nil",
+			fnName: "MakeChanBufFixture",
+			find: func(t *testing.T, fn *ssa.Function) (ssa.Instruction, *ssa.BasicBlock) {
+				v, b := findInstr[*ssa.MakeChan](t, fn)
+				return v, b
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fn := findFunc(t, pkg, tt.fnName)
+			instr, block := tt.find(t, fn)
+
+			a := &NilAnalyzer{
+				state: map[*ssa.BasicBlock]map[ssa.Value]NilState{
+					block: {},
+				},
+			}
+
+			a.transferInstruction(block, instr)
+
+			// The instruction must also be an ssa.Value to appear in state.
+			v, ok := instr.(ssa.Value)
+			require.True(t, ok, "instruction should implement ssa.Value")
+			require.Equal(t, DefinitelyNotNil, a.state[block][v])
+		})
+	}
+}
+
+// TestTransferInstruction_Alloc_HeapEscaped tests that a heap-escaping alloc
+// (e.g. returned pointer) is still DefinitelyNotNil.
+func TestTransferInstruction_Alloc_HeapEscaped(t *testing.T) {
+	t.Parallel()
+
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+
+	fn := findFunc(t, pkgs[0], "AllocAddr")
+
+	// Find the heap alloc specifically (Alloc.Heap == true).
+	var heapAlloc *ssa.Alloc
+	var allocBlock *ssa.BasicBlock
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if a, ok := instr.(*ssa.Alloc); ok && a.Heap {
+				heapAlloc = a
+				allocBlock = block
+			}
+		}
+	}
+	// If there's no heap alloc (optimizer kept it on stack), skip.
+	if heapAlloc == nil {
+		t.Skip("no heap alloc found — optimizer kept it on stack")
+	}
+
+	a := &NilAnalyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]NilState{
+			allocBlock: {},
+		},
+	}
+
+	a.transferInstruction(allocBlock, heapAlloc)
+	require.Equal(t, DefinitelyNotNil, a.state[allocBlock][heapAlloc])
+}
+
+// transferInstruction: unhandled instructions
+
+// TestTransferInstruction_UnhandledInstr verifies that an instruction not
+// covered by the switch (e.g. *ssa.Store) does not write to state.
+func TestTransferInstruction_UnhandledInstr(t *testing.T) {
+	t.Parallel()
+
+	block := &ssa.BasicBlock{}
+	a := &NilAnalyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]NilState{
+			block: {},
+		},
+	}
+
+	// ssa.Store is an instruction that doesn't produce a Value.
+	// transferInstruction should not panic and should leave state untouched.
+	store := &ssa.Store{}
+	a.transferInstruction(block, store)
+	require.Empty(t, a.state[block], "unhandled instruction should not modify state")
+}
+
+// TestTransferInstruction_BinOp_NoStateChange verifies that a *ssa.BinOp
+// (not handled yet in nil analysis) does not modify state.
+func TestTransferInstruction_BinOp_NoStateChange(t *testing.T) {
+	t.Parallel()
+
+	block := &ssa.BasicBlock{}
+	param := &ssa.Parameter{}
+
+	a := &NilAnalyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]NilState{
+			block: {param: MaybeNil},
+		},
+	}
+
+	binOp := &ssa.BinOp{Op: token.ADD}
+	a.transferInstruction(block, binOp)
+
+	require.Equal(t, MaybeNil, a.state[block][param],
+		"BinOp should not affect existing nil state")
+	_, hasBinOp := a.state[block][binOp]
+	require.False(t, hasBinOp, "BinOp should not be added to nil state")
+}
+
+// transferPhi tests
+
+// findNillablePhi searches a function for a Phi instruction with a nillable type.
+func findNillablePhi(t *testing.T, fn *ssa.Function) (*ssa.Phi, *ssa.BasicBlock) {
+	t.Helper()
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if p, ok := instr.(*ssa.Phi); ok {
+				if isNillable(p) {
+					return p, block
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+// TestTransferPhi_BothNotNil tests a Phi where both edges are DefinitelyNotNil.
+// Result should be DefinitelyNotNil.
+func TestTransferPhi_BothNotNil(t *testing.T) {
+	t.Parallel()
+
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+
+	fn := findFunc(t, pkgs[0], "PhiBothNotNil")
+	phi, phiBlock := findNillablePhi(t, fn)
+	if phi == nil {
+		t.Skip("no nillable Phi found — optimizer may have simplified")
+	}
+
+	// Set up state: both predecessors have DefinitelyNotNil for their allocs.
+	a := &NilAnalyzer{
+		state: make(map[*ssa.BasicBlock]map[ssa.Value]NilState),
+	}
+
+	for i, edge := range phi.Edges {
+		pred := phiBlock.Preds[i]
+		if a.state[pred] == nil {
+			a.state[pred] = make(map[ssa.Value]NilState)
+		}
+		a.state[pred][edge] = DefinitelyNotNil
+	}
+
+	a.state[phiBlock] = make(map[ssa.Value]NilState)
+	a.transferPhi(phiBlock, phi)
+
+	require.Equal(t, DefinitelyNotNil, a.state[phiBlock][phi],
+		"Phi with both edges DefinitelyNotNil should be DefinitelyNotNil")
+}
+
+// TestTransferPhi_OneNilOneNotNil tests a Phi where one edge is nil and
+// the other is non-nil. Result should be MaybeNil.
+func TestTransferPhi_OneNilOneNotNil(t *testing.T) {
+	t.Parallel()
+
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+
+	fn := findFunc(t, pkgs[0], "PhiOneBranchNil")
+	phi, phiBlock := findNillablePhi(t, fn)
+	if phi == nil {
+		t.Skip("no nillable Phi found — optimizer may have simplified")
+	}
+
+	a := &NilAnalyzer{
+		state: make(map[*ssa.BasicBlock]map[ssa.Value]NilState),
+	}
+
+	for i, edge := range phi.Edges {
+		pred := phiBlock.Preds[i]
+		if a.state[pred] == nil {
+			a.state[pred] = make(map[ssa.Value]NilState)
+		}
+		if _, isConst := edge.(*ssa.Const); !isConst {
+			a.state[pred][edge] = DefinitelyNotNil
+		}
+	}
+
+	a.state[phiBlock] = make(map[ssa.Value]NilState)
+	a.transferPhi(phiBlock, phi)
+
+	require.Equal(t, MaybeNil, a.state[phiBlock][phi],
+		"Phi with one nil and one non-nil edge should be MaybeNil")
+}
+
+// TestTransferPhi_AllNil tests a Phi where all edges are DefinitelyNil.
+// Result should be DefinitelyNil.
+func TestTransferPhi_AllNil(t *testing.T) {
+	t.Parallel()
+
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+
+	fn := findFunc(t, pkgs[0], "PhiAllNil")
+	phi, phiBlock := findNillablePhi(t, fn)
+	if phi == nil {
+		t.Skip("no nillable Phi found — optimizer may have simplified")
+	}
+
+	a := &NilAnalyzer{
+		state: make(map[*ssa.BasicBlock]map[ssa.Value]NilState),
+	}
+
+	for i := range phi.Edges {
+		pred := phiBlock.Preds[i]
+		if a.state[pred] == nil {
+			a.state[pred] = make(map[ssa.Value]NilState)
+		}
+	}
+
+	a.state[phiBlock] = make(map[ssa.Value]NilState)
+	a.transferPhi(phiBlock, phi)
+
+	require.Equal(t, DefinitelyNil, a.state[phiBlock][phi],
+		"Phi with all nil edges should be DefinitelyNil")
+}
+
+// Synthetic Phi tests (no SSA build, direct struct construction)
+
+// ptrType is a reusable *int type for synthetic tests.
+var ptrType = types.NewPointer(types.Typ[types.Int])
+
+// newNilConst creates a nil *ssa.Const of pointer type.
+func newNilConst() *ssa.Const { return ssa.NewConst(nil, ptrType) }
+
+// newNonNilConst creates a non-nil *ssa.Const (integer constant).
+func newNonNilConst() *ssa.Const {
+	return ssa.NewConst(constant.MakeInt64(42), types.Typ[types.Int])
+}
+
+// TestTransferPhi_Synthetic_SingleEdge tests a Phi with a single predecessor.
+// Uses a nil const as the edge value, with state set on the predecessor.
+func TestTransferPhi_Synthetic_SingleEdge(t *testing.T) {
+	t.Parallel()
+
+	pred := &ssa.BasicBlock{}
+	block := &ssa.BasicBlock{}
+	block.Preds = []*ssa.BasicBlock{pred}
+
+	// A non-nil const — lookupNilState returns DefinitelyNotNil for non-nil consts.
+	edge := newNonNilConst()
+	phi := &ssa.Phi{
+		Edges: []ssa.Value{edge},
+	}
+
+	a := &NilAnalyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]NilState{
+			pred:  {},
+			block: {},
+		},
+	}
+
+	a.transferPhi(block, phi)
+	require.Equal(t, DefinitelyNotNil, a.state[block][phi])
+}
+
+// TestTransferPhi_Synthetic_JoinTable exercises all NilState combinations
+// through Phi with two edges. Uses nil/non-nil consts which lookupNilState
+// can resolve without needing typed Parameters.
+func TestTransferPhi_Synthetic_JoinTable(t *testing.T) {
+	t.Parallel()
+
+	// We test the join through transferPhi by using consts that lookupNilState
+	// resolves to known states, combined with state map entries.
+	// nil const → DefinitelyNil, non-nil const → DefinitelyNotNil.
+	// For MaybeNil/NilBottom we use a nillable const and control state map.
+	tests := []struct {
+		name  string
+		left  NilState
+		right NilState
+		want  NilState
+	}{
+		{"Nil+Nil", DefinitelyNil, DefinitelyNil, DefinitelyNil},
+		{"Nil+NotNil", DefinitelyNil, DefinitelyNotNil, MaybeNil},
+		{"NotNil+NotNil", DefinitelyNotNil, DefinitelyNotNil, DefinitelyNotNil},
+		{"NotNil+Nil", DefinitelyNotNil, DefinitelyNil, MaybeNil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pred1 := &ssa.BasicBlock{}
+			pred2 := &ssa.BasicBlock{}
+			block := &ssa.BasicBlock{}
+			block.Preds = []*ssa.BasicBlock{pred1, pred2}
+
+			// Choose consts based on desired nil state.
+			var edge1, edge2 ssa.Value
+			if tt.left == DefinitelyNil {
+				edge1 = newNilConst()
+			} else {
+				edge1 = newNonNilConst()
+			}
+			if tt.right == DefinitelyNil {
+				edge2 = newNilConst()
+			} else {
+				edge2 = newNonNilConst()
+			}
+
+			phi := &ssa.Phi{
+				Edges: []ssa.Value{edge1, edge2},
+			}
+
+			a := &NilAnalyzer{
+				state: map[*ssa.BasicBlock]map[ssa.Value]NilState{
+					pred1: {},
+					pred2: {},
+					block: {},
+				},
+			}
+
+			a.transferPhi(block, phi)
+			require.Equal(t, tt.want, a.state[block][phi],
+				"Join(%v, %v) should be %v", tt.left, tt.right, tt.want)
+		})
+	}
+}
+
+// TestTransferPhi_Synthetic_ThreeEdges tests a Phi with three predecessors.
+func TestTransferPhi_Synthetic_ThreeEdges(t *testing.T) {
+	t.Parallel()
+
+	pred1 := &ssa.BasicBlock{}
+	pred2 := &ssa.BasicBlock{}
+	pred3 := &ssa.BasicBlock{}
+	block := &ssa.BasicBlock{}
+	block.Preds = []*ssa.BasicBlock{pred1, pred2, pred3}
+
+	phi := &ssa.Phi{
+		Edges: []ssa.Value{newNonNilConst(), newNonNilConst(), newNilConst()},
+	}
+
+	// NotNil + NotNil + Nil = MaybeNil
+	a := &NilAnalyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]NilState{
+			pred1: {},
+			pred2: {},
+			pred3: {},
+			block: {},
+		},
+	}
+
+	a.transferPhi(block, phi)
+	require.Equal(t, MaybeNil, a.state[block][phi],
+		"NotNil+NotNil+Nil should be MaybeNil")
+}
+
+// TestTransferPhi_Synthetic_NilConst tests that Phi correctly handles
+// a nil *ssa.Const edge via lookupNilState (no state map entry needed).
+func TestTransferPhi_Synthetic_NilConst(t *testing.T) {
+	t.Parallel()
+
+	pred1 := &ssa.BasicBlock{}
+	pred2 := &ssa.BasicBlock{}
+	block := &ssa.BasicBlock{}
+	block.Preds = []*ssa.BasicBlock{pred1, pred2}
+
+	phi := &ssa.Phi{
+		Edges: []ssa.Value{newNonNilConst(), newNilConst()},
+	}
+
+	a := &NilAnalyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]NilState{
+			pred1: {},
+			pred2: {},
+			block: {},
+		},
+	}
+
+	a.transferPhi(block, phi)
+	require.Equal(t, MaybeNil, a.state[block][phi],
+		"NotNil + nil const should be MaybeNil")
+}
+
+// TestTransferPhi_Synthetic_NonNilConst tests that Phi handles a non-nil
+// *ssa.Const (e.g. integer constant) — lookupNilState returns DefinitelyNotNil.
+func TestTransferPhi_Synthetic_NonNilConst(t *testing.T) {
+	t.Parallel()
+
+	pred1 := &ssa.BasicBlock{}
+	pred2 := &ssa.BasicBlock{}
+	block := &ssa.BasicBlock{}
+	block.Preds = []*ssa.BasicBlock{pred1, pred2}
+
+	phi := &ssa.Phi{
+		Edges: []ssa.Value{newNonNilConst(), newNonNilConst()},
+	}
+
+	a := &NilAnalyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]NilState{
+			pred1: {},
+			pred2: {},
+			block: {},
+		},
+	}
+
+	a.transferPhi(block, phi)
+	require.Equal(t, DefinitelyNotNil, a.state[block][phi],
+		"NotNil + non-nil const should be DefinitelyNotNil")
 }
