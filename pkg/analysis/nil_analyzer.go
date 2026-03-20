@@ -3,6 +3,7 @@ package analysis
 import (
 	"go/token"
 	"go/types"
+	"maps"
 
 	"golang.org/x/tools/go/ssa"
 )
@@ -11,6 +12,101 @@ type NilAnalyzer struct {
 	state    map[*ssa.BasicBlock]map[ssa.Value]NilState
 	resolver *CHAResolver
 	findings []Finding
+	err      error
+}
+
+func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
+	a.state = make(map[*ssa.BasicBlock]map[ssa.Value]NilState)
+	a.findings = make([]Finding, 0)
+
+	blocks, err := ReversePostOrder(fn)
+	if err != nil {
+		a.err = err
+		return nil
+	}
+	workQueue := []*ssa.BasicBlock{}
+	for _, block := range blocks {
+		workQueue = append(workQueue, block)
+	}
+
+	// Iterate through the queue
+	iterations := 0
+	for len(workQueue) > 0 && iterations < maxIterations {
+		iterations += 1
+		block := workQueue[0]
+		workQueue = workQueue[1:]
+
+		// Initialize block state on first block visit
+		if a.state[block] == nil {
+			a.state[block] = make(map[ssa.Value]NilState)
+		}
+
+		// Save old state for change detection
+		oldState := a.copyBlockState(block)
+
+		a.refineFromPredecessor(block)
+		for _, instr := range block.Instrs {
+			a.transferInstruction(block, instr)
+		}
+
+		if !a.stateEqual(oldState, a.state[block]) {
+			for _, succ := range block.Succs {
+				workQueue = append(workQueue, succ)
+			}
+		}
+	}
+	for _, block := range blocks {
+		for _, instr := range block.Instrs {
+			a.checkInstruction(block, instr)
+		}
+	}
+	return a.findings
+}
+
+func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction) {
+	switch v := instr.(type) {
+	case *ssa.UnOp:
+		// Only pointer dereference: *p
+		if v.Op == token.MUL {
+			a.flagNilDeref(block, v.X, v.Pos())
+		}
+	case *ssa.FieldAddr:
+		// p.Field — v.X is the struct pointer
+		a.flagNilDeref(block, v.X, v.Pos())
+	case *ssa.IndexAddr:
+		// p[i] — v.X is the slice/array pointer
+		a.flagNilDeref(block, v.X, v.Pos())
+	}
+}
+
+func (a *NilAnalyzer) flagNilDeref(block *ssa.BasicBlock, v ssa.Value, pos token.Pos) {
+	state := a.lookupNilState(block, v)
+	switch state {
+	case DefinitelyNil:
+		a.findings = append(a.findings, Finding{
+			Pos:      pos,
+			Message:  "nil dereference",
+			Severity: Bug,
+		})
+	case MaybeNil:
+		a.findings = append(a.findings, Finding{
+			Pos:      pos,
+			Message:  "possible nil dereference",
+			Severity: Warning,
+		})
+	}
+}
+
+func (a *NilAnalyzer) stateEqual(s1, s2 map[ssa.Value]NilState) bool {
+	return maps.Equal(s1, s2)
+}
+
+func (a *NilAnalyzer) copyBlockState(block *ssa.BasicBlock) map[ssa.Value]NilState {
+	cpy := make(map[ssa.Value]NilState)
+	if currState, ok := a.state[block]; ok {
+		maps.Copy(cpy, currState)
+	}
+	return cpy
 }
 
 func (a *NilAnalyzer) lookupNilState(block *ssa.BasicBlock, v ssa.Value) NilState {
