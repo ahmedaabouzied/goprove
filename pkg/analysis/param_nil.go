@@ -68,7 +68,6 @@ func ComputeParamNilStatesAnalysis(
 				// Look up argument nil state from caller's converged state.
 				callerState := analyzer.convergedStates[site.caller]
 				if callerState == nil {
-					// Caller not analyzed, fall back to classifyArg
 					for i := 0; i < nParams && i < len(site.args); i++ {
 						paramStates[i] = paramStates[i].Join(classifyArg(site.args[i]))
 					}
