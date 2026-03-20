@@ -50,10 +50,6 @@ func ComputeParamNilStatesAnalysis(
 
 		changed := false
 		for callee, callSites := range sites {
-			if callee.Object() != nil && callee.Object().Exported() {
-				continue
-			}
-
 			nParams := len(callee.Params)
 			if nParams == 0 {
 				continue
@@ -126,12 +122,6 @@ func ComputeParamNilStates(prog *ssa.Program, pkgs []*ssa.Package) *ParamNilStat
 	sites := p.collectCallSites(pkgs)
 
 	for callee, callSites := range sites {
-		// Skip exported functions — can't see all callers.
-		if callee.Object() != nil && callee.Object().Exported() {
-			continue
-		}
-
-		// Initialize param states to NilBottom (identity for Join).
 		nParams := len(callee.Params)
 		if nParams == 0 {
 			continue
