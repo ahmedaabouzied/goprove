@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"fmt"
 	"go/token"
 	"go/types"
 	"maps"
@@ -128,9 +129,10 @@ func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 		if isSliceType(v.X) {
 			// Only flag proven nil for slices. MaybeNil is too noisy. It's the job of the bound checker to check slice bound access panics.
 			if a.lookupNilState(block, v.X) == DefinitelyNil {
+				name := nilValueName(v.X)
 				a.findings = append(a.findings, Finding{
 					Pos:      v.Pos(),
-					Message:  "nil dereference",
+					Message:  fmt.Sprintf("nil dereference of %s — slice is always nil", name),
 					Severity: Bug,
 				})
 			}
@@ -146,19 +148,50 @@ func isSliceType(v ssa.Value) bool {
 	return isSlice
 }
 
+// nilValueName returns a human-readable name for the value being dereferenced.
+// For parameters it returns the source name (e.g., "config").
+// For global loads it returns the global name (e.g., "globalPtr").
+// For nil constants it returns "nil pointer".
+// For other SSA values it returns the SSA register name (e.g., "t2").
+func nilValueName(v ssa.Value) string {
+	switch val := v.(type) {
+	case *ssa.Const:
+		if val.IsNil() {
+			return "nil pointer"
+		}
+		return val.Name()
+	case *ssa.Parameter:
+		return val.Name()
+	case *ssa.UnOp:
+		// Load from global: *globalPtr → use the global's name.
+		if g, ok := val.X.(*ssa.Global); ok {
+			return g.Name()
+		}
+		return val.Name()
+	case *ssa.Alloc:
+		if val.Comment != "" {
+			return val.Comment
+		}
+		return val.Name()
+	default:
+		return v.Name()
+	}
+}
+
 func (a *NilAnalyzer) flagNilDeref(block *ssa.BasicBlock, v ssa.Value, pos token.Pos) {
+	name := nilValueName(v)
 	state := a.lookupNilState(block, v)
 	switch state {
 	case DefinitelyNil:
 		a.findings = append(a.findings, Finding{
 			Pos:      pos,
-			Message:  "nil dereference",
+			Message:  fmt.Sprintf("nil dereference of %s — value is always nil", name),
 			Severity: Bug,
 		})
 	case MaybeNil:
 		a.findings = append(a.findings, Finding{
 			Pos:      pos,
-			Message:  "possible nil dereference",
+			Message:  fmt.Sprintf("possible nil dereference of %s — add a nil check before use", name),
 			Severity: Warning,
 		})
 	}

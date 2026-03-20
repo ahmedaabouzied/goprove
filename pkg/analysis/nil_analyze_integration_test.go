@@ -384,7 +384,7 @@ func TestNilAnalyze(t *testing.T) {
 
 			if tt.wantLen > 0 {
 				require.Equal(t, tt.severity, findings[0].Severity)
-				require.Equal(t, tt.message, findings[0].Message)
+				require.Contains(t, findings[0].Message, tt.message)
 			}
 		})
 	}
@@ -461,7 +461,7 @@ func TestNilAnalyze_Testdata(t *testing.T) {
 			if tt.wantLen > 0 {
 				require.Equal(t, tt.severity, findings[0].Severity,
 					"%s: wrong severity", tt.fnName)
-				require.Equal(t, tt.message, findings[0].Message,
+				require.Contains(t, findings[0].Message, tt.message,
 					"%s: wrong message", tt.fnName)
 			}
 		})
@@ -556,7 +556,7 @@ func TestNilAnalyze_MultiplePointerParams(t *testing.T) {
 
 	for _, f := range findings {
 		require.Equal(t, analysis.Warning, f.Severity)
-		require.Equal(t, "possible nil dereference", f.Message)
+		require.Contains(t, f.Message, "possible nil dereference")
 	}
 }
 
@@ -631,7 +631,7 @@ func TestNilAnalyze_ConditionalAssignment(t *testing.T) {
 	findings := analyzer.Analyze(fn)
 	require.Len(t, findings, 1)
 	require.Equal(t, analysis.Warning, findings[0].Severity)
-	require.Equal(t, "possible nil dereference", findings[0].Message)
+	require.Contains(t, findings[0].Message, "possible nil dereference")
 }
 
 // TestNilAnalyze_NestedNilCheck tests nested nil checks on double pointers.
