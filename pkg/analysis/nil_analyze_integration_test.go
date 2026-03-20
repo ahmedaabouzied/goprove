@@ -729,7 +729,8 @@ func TestNilAnalyze_DerefInBothBranches(t *testing.T) {
 
 	analyzer := analysis.NewNilAnalyzer(nil)
 	findings := analyzer.Analyze(fn)
-	require.Len(t, findings, 2, "both branches deref unchecked p — two warnings")
+	// Dedup: same variable p reported once, not per-branch.
+	require.Len(t, findings, 1, "dedup: same variable p reported once")
 	for _, f := range findings {
 		require.Equal(t, analysis.Warning, f.Severity)
 	}

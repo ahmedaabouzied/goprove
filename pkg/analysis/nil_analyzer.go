@@ -27,7 +27,7 @@ func NewNilAnalyzer(resolver *CHAResolver) *NilAnalyzer {
 	return &NilAnalyzer{
 		resolver:     resolver,
 		summaries:    make(map[*ssa.Function]NilFunctionSummary),
-		maxCallDepth: 10,
+		maxCallDepth: 3,
 	}
 }
 
@@ -77,9 +77,10 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 			}
 		}
 	}
+	reported := make(map[string]bool)
 	for _, block := range blocks {
 		for _, instr := range block.Instrs {
-			a.checkInstruction(block, instr)
+			a.checkInstruction(block, instr, reported)
 		}
 	}
 	return a.findings
@@ -112,7 +113,7 @@ func (a *NilAnalyzer) initBlockState(block *ssa.BasicBlock) {
 	a.state[block] = newState
 }
 
-func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction) {
+func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction, reported map[string]bool) {
 	switch v := instr.(type) {
 	case *ssa.UnOp:
 		// Only pointer dereference: *p
@@ -120,16 +121,20 @@ func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 			if _, isGlobal := v.X.(*ssa.Global); isGlobal {
 				break
 			}
-			a.flagNilDeref(block, v.X, v.Pos())
+			a.flagNilDeref(block, v.X, v.Pos(), reported)
 		}
 	case *ssa.FieldAddr:
 		// p.Field — v.X is the struct pointer
-		a.flagNilDeref(block, v.X, v.Pos())
+		a.flagNilDeref(block, v.X, v.Pos(), reported)
 	case *ssa.IndexAddr:
 		if isSliceType(v.X) {
 			// Only flag proven nil for slices. MaybeNil is too noisy. It's the job of the bound checker to check slice bound access panics.
 			if a.lookupNilState(block, v.X) == DefinitelyNil {
 				name := nilValueName(v.X)
+				if reported[name] {
+					break
+				}
+				reported[name] = true
 				a.findings = append(a.findings, Finding{
 					Pos:      v.Pos(),
 					Message:  fmt.Sprintf("nil dereference of %s — slice is always nil", name),
@@ -138,7 +143,7 @@ func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 			}
 		} else {
 			// p[i] — v.X is the slice/array pointer
-			a.flagNilDeref(block, v.X, v.Pos())
+			a.flagNilDeref(block, v.X, v.Pos(), reported)
 		}
 	}
 }
@@ -152,48 +157,87 @@ func isSliceType(v ssa.Value) bool {
 // For parameters it returns the source name (e.g., "config").
 // For global loads it returns the global name (e.g., "globalPtr").
 // For nil constants it returns "nil pointer".
-// For other SSA values it returns the SSA register name (e.g., "t2").
+// For call results it returns "result of funcName()".
+// For SSA register names (t0, t1, ...) it returns "" to avoid confusing users.
 func nilValueName(v ssa.Value) string {
 	switch val := v.(type) {
 	case *ssa.Const:
 		if val.IsNil() {
 			return "nil pointer"
 		}
-		return val.Name()
+		return ""
 	case *ssa.Parameter:
 		return val.Name()
 	case *ssa.UnOp:
-		// Load from global: *globalPtr → use the global's name.
 		if g, ok := val.X.(*ssa.Global); ok {
 			return g.Name()
 		}
-		return val.Name()
+		return ""
+	case *ssa.Call:
+		if callee := val.Call.StaticCallee(); callee != nil {
+			return fmt.Sprintf("result of %s()", callee.Name())
+		}
+		return ""
 	case *ssa.Alloc:
 		if val.Comment != "" {
 			return val.Comment
 		}
-		return val.Name()
+		return ""
+	case *ssa.Phi:
+		// Don't recurse into Phi edges — they can form cycles (loop back-edges).
+		return ""
 	default:
-		return v.Name()
+		return ""
 	}
 }
 
-func (a *NilAnalyzer) flagNilDeref(block *ssa.BasicBlock, v ssa.Value, pos token.Pos) {
+func (a *NilAnalyzer) flagNilDeref(block *ssa.BasicBlock, v ssa.Value, pos token.Pos, reported map[string]bool) {
 	name := nilValueName(v)
 	state := a.lookupNilState(block, v)
+
+	// Dedup key: use name if meaningful, otherwise fall back to pos.
+	dedupKey := name
+	if dedupKey == "" {
+		dedupKey = fmt.Sprintf("pos:%d", pos)
+	}
+
 	switch state {
 	case DefinitelyNil:
-		a.findings = append(a.findings, Finding{
-			Pos:      pos,
-			Message:  fmt.Sprintf("nil dereference of %s — value is always nil", name),
-			Severity: Bug,
-		})
+		if reported[dedupKey] {
+			return
+		}
+		reported[dedupKey] = true
+		if name != "" {
+			a.findings = append(a.findings, Finding{
+				Pos:      pos,
+				Message:  fmt.Sprintf("nil dereference of %s — value is always nil", name),
+				Severity: Bug,
+			})
+		} else {
+			a.findings = append(a.findings, Finding{
+				Pos:      pos,
+				Message:  "nil dereference — value is always nil",
+				Severity: Bug,
+			})
+		}
 	case MaybeNil:
-		a.findings = append(a.findings, Finding{
-			Pos:      pos,
-			Message:  fmt.Sprintf("possible nil dereference of %s — add a nil check before use", name),
-			Severity: Warning,
-		})
+		if reported[dedupKey] {
+			return
+		}
+		reported[dedupKey] = true
+		if name != "" {
+			a.findings = append(a.findings, Finding{
+				Pos:      pos,
+				Message:  fmt.Sprintf("possible nil dereference of %s — add a nil check before use", name),
+				Severity: Warning,
+			})
+		} else {
+			a.findings = append(a.findings, Finding{
+				Pos:      pos,
+				Message:  "possible nil dereference — add a nil check before use",
+				Severity: Warning,
+			})
+		}
 	}
 }
 
@@ -338,6 +382,9 @@ func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummar
 	if a.callDepth >= a.maxCallDepth {
 		return NilFunctionSummary{Returns: []NilState{MaybeNil}}
 	}
+
+	// Cache a conservative sentinel before analyzing to break recursive calls.
+	a.summaries[fn] = NilFunctionSummary{Returns: []NilState{MaybeNil}}
 
 	childNilAnalyzer := NewNilAnalyzer(a.resolver)
 	childNilAnalyzer.callDepth = a.callDepth + 1
