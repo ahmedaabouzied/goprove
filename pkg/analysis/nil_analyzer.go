@@ -29,6 +29,11 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 		workQueue = append(workQueue, block)
 	}
 
+	if fn.Signature.Recv() != nil && len(fn.Params) > 0 && isNillable(fn.Params[0]) {
+		a.state[blocks[0]] = make(map[ssa.Value]NilState)
+		a.state[blocks[0]][fn.Params[0]] = DefinitelyNotNil
+	}
+
 	// Iterate through the queue
 	iterations := 0
 	for len(workQueue) > 0 && iterations < maxIterations {
@@ -40,6 +45,7 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 		if a.state[block] == nil {
 			a.state[block] = make(map[ssa.Value]NilState)
 		}
+		a.initBlockState(block)
 
 		// Save old state for change detection
 		oldState := a.copyBlockState(block)
@@ -61,6 +67,33 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 		}
 	}
 	return a.findings
+}
+
+func (a *NilAnalyzer) initBlockState(block *ssa.BasicBlock) {
+	if len(block.Preds) == 0 {
+		// Entry block. Keep existing state (receiver init, etc)
+		return
+	}
+
+	// Start fresh for this block
+	newState := make(map[ssa.Value]NilState)
+
+	// Join all predecessor states
+	for _, pred := range block.Preds {
+		predState, ok := a.state[pred]
+		if !ok {
+			continue
+		}
+
+		for v, s := range predState {
+			if existing, ok := newState[v]; ok {
+				newState[v] = existing.Join(s)
+			} else {
+				newState[v] = s
+			}
+		}
+	}
+	a.state[block] = newState
 }
 
 func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction) {
