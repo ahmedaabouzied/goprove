@@ -24,7 +24,9 @@ $ goprove ./...
 - **Warning**: dereferencing a value that may be nil (unchecked parameter, conditional assignment)
 - **Safe**: nil checks are tracked through branches (`if p != nil { *p }`)
 - Tracks: `new()`, `&x`, `make()`, `MakeInterface` as always non-nil
-- Interprocedural: analyzes callee return values to determine nil state
+- Interprocedural return tracking: analyzes callee return values to determine nil state
+- Whole-program parameter tracking: fixed-point iteration analyzes what callers actually pass — if all callers pass non-nil after nil guards, the parameter is proven non-nil
+- Cross-package analysis: parameter tracking works across package boundaries within the analyzed scope
 - Global variables: nil checks on globals propagate across subsequent reads
 - Method receivers: assumed non-nil (calling a method on nil is the caller's responsibility)
 - Deduplication: same variable reported once per function, not per dereference site
@@ -70,7 +72,8 @@ In short: **Bug = guaranteed real. Warning = worth checking. No finding = safe f
 3. Worklist algorithm iterates blocks to a fixed point (widening for intervals, finite lattice for nil)
 4. Branch refinement narrows state through `if` conditions (`if p != nil`, `if y != 0`, comparisons)
 5. Interprocedural analysis: CHA call graph resolution, function summaries for return values
-6. Post-convergence check pass classifies findings as Bug/Warning/Safe
+6. Whole-program parameter analysis: fixed-point iteration computes what callers actually pass to each parameter, using converged caller state at call sites
+7. Post-convergence check pass classifies findings as Bug/Warning/Safe
 
 ## Design Principles
 

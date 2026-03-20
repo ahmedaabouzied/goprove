@@ -16,6 +16,14 @@
 - Nil package guard in Prover.Prove (packages with load errors produce nil SSA packages)
 - Real-world validation: production Go codebase went from 32 warnings to 1
 
+### Whole-Program Parameter Analysis
+- Fixed-point iteration: analyze all functions, compute param nil states from converged caller state, repeat until stable
+- Block-level argument lookup: at each call site, use caller's converged block state (not just SSA value type)
+- Cross-package tracking: analyze any function with call sites in scope, not just unexported
+- convergedStates: NilAnalyzer preserves per-function state for param analysis lookup
+- Removed exported function skip — if callers are visible, use their data
+- Real-world results: production logger 32 → 0 warnings, attribution worker 352 → 47
+
 ### Intraprocedural Foundation
 
 - Implemented NilState abstract domain with Join, Meet, Equals — 4-element lattice (NilBottom, DefinitelyNil, DefinitelyNotNil, MaybeNil)

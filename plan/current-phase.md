@@ -88,6 +88,16 @@
 - [x] Per-function deduplication: same variable reported once, not per dereference site
 - [x] Safe Phi edge traversal (no recursion into Phi edges to avoid cycles)
 
+### 2.14 Whole-Program Parameter Analysis
+- [x] collectCallSites: walk all packages, collect call sites from *ssa.Call and *ssa.Go
+- [x] classifyArg: context-free nil classification of SSA values
+- [x] ComputeParamNilStatesAnalysis: fixed-point iteration using converged caller state
+- [x] Block-level argument lookup: at each call site, look up argument nil state from caller's converged block state
+- [x] Sentinel summary caching to break recursive call chains
+- [x] Cross-package parameter tracking: analyze all functions with call sites in scope, not just unexported
+- [x] convergedStates: NilAnalyzer saves per-function state after Analyze for param analysis lookup
+- [x] SetParamNilStates: post-construction param state update for iterative refinement
+
 ## Phase 2 Status: COMPLETE
 
 All definition-of-done criteria met:
@@ -98,10 +108,13 @@ All definition-of-done criteria met:
 5. ✅ `var p *int; *p` is a proven Bug
 6. ✅ No double-reporting on FieldAddr/IndexAddr chains
 7. ✅ Interprocedural: callee return nil states tracked via function summaries
-8. ✅ Global variables: nil checks propagate across subsequent reads
-9. ✅ Method receivers: assumed non-nil (intentional pragmatic unsoundness)
-10. ✅ Real-world validation: 32 → 1 warning on a production Go codebase
-11. ✅ 40+ integration tests, 100% unit test coverage on nil_analyzer.go
+8. ✅ Whole-program: parameter nil states computed from converged caller state via fixed-point iteration
+9. ✅ Cross-package: parameter tracking works across package boundaries within analyzed scope
+10. ✅ Global variables: nil checks propagate across subsequent reads
+11. ✅ Method receivers: assumed non-nil (intentional pragmatic unsoundness)
+12. ✅ Real-world validation: 32 → 0 warnings on production logger package, 352 → 47 on attribution worker
+13. ✅ Tested on net/http (0 false bugs), core/kafka, core/platform (0 warnings)
+14. ✅ 60+ integration tests, 100% unit test coverage on nil_analyzer.go
 
 ## Known Limitations (to fix later)
 
@@ -113,9 +126,6 @@ p = new(int)   // SSA: Store to p's alloc
 _ = *p         // SSA: UnOp MUL on p's alloc — state is MaybeNil, not DefinitelyNotNil
 ```
 For most Go code, variables are not address-taken and SSA uses direct values + Phi nodes, so this rarely causes false positives. Fix requires tracking Store destinations and propagating nil state from stored values.
-
-### No interprocedural nil analysis
-Function parameters default to MaybeNil. If a caller always passes non-nil, the callee still warns. Phase 4 (interprocedural analysis) will add function summaries for nil state, similar to interval summaries.
 
 ### No map lookup tracking
 `v, ok := m[key]` — the `ok` pattern is not tracked. `v` defaults to MaybeNil even when guarded by `ok`. Requires tracking Extract instructions from Tuple results.
