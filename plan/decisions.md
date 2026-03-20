@@ -205,3 +205,53 @@
 - The shared part (call resolution) is the `CallResolver`, not the summary
 - Can always generalize later if real duplication emerges
 - YAGNI — don't abstract until the pattern repeats
+
+---
+
+## ADR-013: No widening for nil analysis
+
+**Date**: 2026-03-20
+**Status**: Accepted
+
+**Context**: The interval analyzer uses widening to guarantee convergence on loops. Does the nil analyzer need widening too?
+
+**Decision**: No widening for nil analysis. The NilState lattice has finite height (4 elements: NilBottom < DefinitelyNil/DefinitelyNotNil < MaybeNil), so the worklist is guaranteed to converge without widening.
+
+**Rationale**:
+- Every value can only change at most 3 times before reaching the top (MaybeNil)
+- With N values and B blocks, worst case is O(3 × N × B) state changes — always terminates
+- The maxIterations cap (1000) is a safety net, not a convergence mechanism
+
+---
+
+## ADR-014: Slice IndexAddr — Bug only, no MaybeNil warning
+
+**Date**: 2026-03-20
+**Status**: Accepted
+
+**Context**: Every slice parameter triggers "possible nil dereference" on IndexAddr because slice params default to MaybeNil. This is noisy — indexing a nil slice panics with "index out of range", which is the bounds checker's domain.
+
+**Decision**: For slice-typed IndexAddr bases, only flag DefinitelyNil (Bug). Skip MaybeNil (Warning). Non-slice IndexAddr (pointer-to-array) keeps both Bug and Warning.
+
+**Rationale**:
+- Nil slice indexing is a bounds violation, not a nil pointer dereference
+- Phase 3 (slice bounds analysis) will track slice length and flag nil slice access properly
+- Reduces false positives significantly on real Go code (slice params are common)
+- DefinitelyNil slice indexing is still flagged — this is always a bug
+
+---
+
+## ADR-015: FieldAddr/IndexAddr results are DefinitelyNotNil
+
+**Date**: 2026-03-20
+**Status**: Accepted
+
+**Context**: `s.X` in SSA becomes `FieldAddr s .X` followed by `UnOp MUL` (load). The FieldAddr correctly flags nil deref on `s`, but the UnOp sees the FieldAddr result as MaybeNil and emits a spurious second warning.
+
+**Decision**: Transfer functions for FieldAddr and IndexAddr record their result as DefinitelyNotNil in the state map.
+
+**Rationale**:
+- If FieldAddr/IndexAddr didn't panic, execution continues — the resulting pointer is valid (non-nil)
+- This models "post-dereference" knowledge: the program only reaches the next instruction if the base was non-nil
+- Eliminates double-reporting on `s.X` patterns (Bug on FieldAddr + spurious Warning on load)
+- Sound: the result pointer points to a sub-element of a live object

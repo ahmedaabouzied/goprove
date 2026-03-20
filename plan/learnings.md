@@ -40,6 +40,16 @@ Things learned while building GoProve. Updated as we go.
 - Go's type checker rejects `x / 0` (literal zero divisor) at compile time. The SSA is never built for it. Runtime division by zero requires an intermediate variable: `zero := 0; x / zero`.
 - Go's built-in `min`/`max` functions (added in Go 1.21) work on int64 — no need for custom helpers.
 
+## Nil Analysis Concepts
+
+- **NilState lattice**: 4-element flat lattice. NilBottom (unreachable) < DefinitelyNil / DefinitelyNotNil < MaybeNil (unknown/Top). No widening needed — finite height guarantees convergence.
+- **isNillable types**: Pointer, Interface, Slice, Map, Chan, Signature. Non-nillable types (int, bool, struct, array) always return DefinitelyNotNil — no need to track them.
+- **`ssa.Const.IsNil()`**: Returns true for nil constants of nillable types. Zero-value consts of non-nillable types (e.g., `struct{}{}`) have `Value == nil` but `IsNil() == false`. Always use `IsNil()`, never check `Value == nil` directly.
+- **MakeInterface of nil pointer**: `interface((*T)(nil))` produces a non-nil interface. The interface value is non-nil even though the underlying pointer is nil. This is a classic Go gotcha — the nil analyzer correctly marks MakeInterface as DefinitelyNotNil.
+- **FieldAddr/IndexAddr post-dereference**: If `p.Field` or `p[i]` didn't panic, the resulting pointer is non-nil. Recording these as DefinitelyNotNil prevents double-reporting (the base dereference is already flagged).
+- **SSA optimizes away `make([]T, constant)`**: When slice length is a constant, SSA may inline the allocation and not produce an `*ssa.MakeSlice` instruction. Use parameter-based lengths in test fixtures to force MakeSlice emission.
+- **Synthetic `ssa.Parameter{}` has no type**: Cannot use bare `&ssa.Parameter{}` in tests that call `isNillable` — it panics on `v.Type().Underlying()`. Use `ssa.NewConst(...)` with proper types for synthetic tests.
+
 ## Defensive Coding
 
 - Value receivers on methods that modify struct state silently discard changes. Always use pointer receivers on Analyzer methods.

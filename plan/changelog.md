@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-03-20 — Nil Pointer Analysis: Intraprocedural (Phase 2)
+
+- Implemented NilState abstract domain with Join, Meet, Equals — 4-element lattice (NilBottom, DefinitelyNil, DefinitelyNotNil, MaybeNil)
+- Built NilAnalyzer with per-block state tracking, same worklist pattern as interval analyzer
+- Transfer functions: Alloc, MakeInterface, MakeSlice, MakeMap, MakeChan → DefinitelyNotNil; FieldAddr, IndexAddr → DefinitelyNotNil (post-dereference); Phi → Join of predecessor edges
+- Branch refinement: `if p != nil` / `if p == nil` narrows state in true/false branches, handles nil on either side of comparison
+- Check pass: flags *ssa.UnOp(MUL), *ssa.FieldAddr, *ssa.IndexAddr on DefinitelyNil (Bug) or MaybeNil (Warning)
+- Slice IndexAddr: only flags DefinitelyNil to reduce noise — MaybeNil deferred to bounds checker (Phase 3)
+- Wired NilAnalyzer into CLI alongside interval analyzer — combined findings sorted by severity
+- Fixed FieldAddr double-reporting: FieldAddr/IndexAddr results tracked as DefinitelyNotNil so subsequent loads don't re-flag
+- lookupNilState, isNillable, isSliceType helpers with full test coverage
+- 100% test coverage on nil_analyzer.go — 60+ test cases including synthetic, table-driven, and real SSA tests
+- Verified against testdata: DerefParam (Warning), DerefAfterCheck (safe), DerefNew (safe), DerefNilLiteral (Bug), FieldAccessOnNil (Bug)
+
 ## 2026-03-03 — Integer Overflow Detection (Task 1.5 + 1.6)
 
 - Implemented `IntervalForType` in `bounds.go`: maps `types.BasicKind` to type bounds for int8, int16, int32
