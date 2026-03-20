@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/ssa"
@@ -32,6 +33,58 @@ func (a *NilAnalyzer) lookupNilState(block *ssa.BasicBlock, v ssa.Value) NilStat
 		}
 	}
 	return MaybeNil
+}
+
+// Checks for if something == nil or something != nil
+func (a *NilAnalyzer) refineFromPredecessor(block *ssa.BasicBlock) {
+	// Check if predecessor ends with an if
+	for _, pred := range block.Preds {
+		lastInstr := pred.Instrs[len(pred.Instrs)-1]
+		ifInstr, ok := lastInstr.(*ssa.If)
+		if !ok {
+			continue
+		}
+		// IF statement
+
+		// Figure out if we're in a true or false branch
+		isTrueBranch := pred.Succs[0] == block
+
+		binOp, ok := ifInstr.Cond.(*ssa.BinOp)
+		if !ok {
+			continue
+		}
+		a.refineFromCondition(block, binOp, isTrueBranch)
+	}
+}
+
+func (a *NilAnalyzer) refineFromCondition(block *ssa.BasicBlock, cond *ssa.BinOp, isTrueBranch bool) {
+	var variable ssa.Value
+	var res NilState
+	if c, ok := cond.X.(*ssa.Const); ok && c.IsNil() {
+		variable = cond.Y
+	} else if c, ok := cond.Y.(*ssa.Const); ok && c.IsNil() {
+		variable = cond.X
+	} else {
+		return
+	}
+
+	switch cond.Op {
+	case token.EQL:
+		if isTrueBranch {
+			res = DefinitelyNil
+		} else {
+			res = DefinitelyNotNil
+		}
+	case token.NEQ:
+		if isTrueBranch {
+			res = DefinitelyNotNil
+		} else {
+			res = DefinitelyNil
+		}
+	default:
+		return
+	}
+	a.state[block][variable] = res
 }
 
 func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instruction) {

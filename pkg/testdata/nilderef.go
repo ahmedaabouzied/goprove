@@ -132,3 +132,67 @@ func PhiAllNil(cond bool) *int {
 	}
 	return p
 }
+
+// ---------------------------------------------------------------------------
+// Fixtures for nil branch refinement tests
+// ---------------------------------------------------------------------------
+
+// RefineNotNil tests that p != nil narrows the true branch to DefinitelyNotNil.
+func RefineNotNil(p *int) int {
+	if p != nil {
+		return *p // safe — p is proven non-nil
+	}
+	return 0
+}
+
+// RefineEqlNil tests that p == nil narrows the true branch to DefinitelyNil.
+func RefineEqlNil(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p // safe — p is proven non-nil in the else branch
+}
+
+// RefineNilOnLeft tests nil == p (nil constant on the left side).
+func RefineNilOnLeft(p *int) int {
+	if nil == p {
+		return 0
+	}
+	return *p
+}
+
+// RefineInterface tests nil check on an interface parameter.
+func RefineInterface(s fmt_Stringer) string {
+	if s != nil {
+		return s.String()
+	}
+	return ""
+}
+
+// RefineSlice tests nil check on a slice parameter.
+func RefineSlice(s []int) int {
+	if s != nil {
+		return s[0]
+	}
+	return 0
+}
+
+// MakeInterfaceFixture wraps a concrete value into an interface.
+type MakeIfaceImpl struct{}
+
+func (MakeIfaceImpl) String() string { return "hello" }
+
+func MakeInterfaceFixture() fmt_Stringer {
+	return MakeIfaceImpl{}
+}
+
+// MakeInterfaceNilPtr wraps a nil pointer into an interface.
+// The interface itself is non-nil even though the underlying pointer is nil.
+type MakeIfacePtr struct{}
+
+func (*MakeIfacePtr) String() string { return "hi" }
+
+func MakeInterfaceNilPtrFixture() fmt_Stringer {
+	var p *MakeIfacePtr
+	return p
+}
