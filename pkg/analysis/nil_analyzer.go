@@ -10,14 +10,15 @@ import (
 )
 
 type NilAnalyzer struct {
-	state          map[*ssa.BasicBlock]map[ssa.Value]NilState
-	summaries      map[*ssa.Function]NilFunctionSummary
-	callDepth      int
-	maxCallDepth   int
-	resolver       *CHAResolver
-	paramNilStates *ParamNilStates
-	findings       []Finding
-	err            error
+	state           map[*ssa.BasicBlock]map[ssa.Value]NilState
+	summaries       map[*ssa.Function]NilFunctionSummary
+	callDepth       int
+	maxCallDepth    int
+	resolver        *CHAResolver
+	paramNilStates  *ParamNilStates
+	findings        []Finding
+	convergedStates map[*ssa.Function]map[*ssa.BasicBlock]map[ssa.Value]NilState
+	err             error
 }
 
 type NilFunctionSummary struct {
@@ -31,6 +32,10 @@ func NewNilAnalyzer(resolver *CHAResolver, paramStates *ParamNilStates) *NilAnal
 		summaries:      make(map[*ssa.Function]NilFunctionSummary),
 		maxCallDepth:   3,
 	}
+}
+
+func (a *NilAnalyzer) SetParamNilStates(states *ParamNilStates) {
+	a.paramNilStates = states
 }
 
 func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
@@ -100,6 +105,12 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 			a.checkInstruction(block, instr, reported)
 		}
 	}
+
+	if a.convergedStates == nil {
+		a.convergedStates = make(map[*ssa.Function]map[*ssa.BasicBlock]map[ssa.Value]NilState)
+	}
+	a.convergedStates[fn] = a.state
+
 	return a.findings
 }
 

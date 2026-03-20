@@ -1,8 +1,6 @@
 package analysis
 
-import (
-	"golang.org/x/tools/go/ssa"
-)
+import "golang.org/x/tools/go/ssa"
 
 type ParamNilStates struct {
 	// paramStates maps each function to the nil state of its parameters.
@@ -10,9 +8,115 @@ type ParamNilStates struct {
 	paramsStates map[*ssa.Function][]NilState
 }
 
+func (p *ParamNilStates) States() map[*ssa.Function][]NilState {
+	return p.paramsStates
+}
+
 type callSite struct {
 	caller *ssa.Function
+	block  *ssa.BasicBlock
 	args   []ssa.Value
+}
+
+func ComputeParamNilStatesAnalysis(
+	pkgs []*ssa.Package,
+	analyzer *NilAnalyzer,
+) *ParamNilStates {
+	p := &ParamNilStates{
+		paramsStates: make(map[*ssa.Function][]NilState),
+	}
+	sites := p.collectCallSites(pkgs)
+
+	var allFunctions []*ssa.Function
+
+	for _, pkg := range pkgs {
+		if pkg == nil {
+			continue
+		}
+
+		for _, member := range pkg.Members {
+			if fn, ok := member.(*ssa.Function); ok {
+				allFunctions = append(allFunctions, fn)
+			}
+		}
+	}
+
+	maxIterations := 5
+	for iter := 0; iter < maxIterations; iter++ {
+		// Analyze all functions with current param states.
+		for _, fn := range allFunctions {
+			analyzer.Analyze(fn)
+		}
+
+		changed := false
+		for callee, callSites := range sites {
+			if callee.Object() != nil && callee.Object().Exported() {
+				continue
+			}
+
+			nParams := len(callee.Params)
+			if nParams == 0 {
+				continue
+			}
+
+			paramStates := make([]NilState, nParams)
+			for i := range paramStates {
+				paramStates[i] = NilBottom
+			}
+
+			for _, site := range callSites {
+				// Look up argument nil state from caller's converged state.
+				callerState := analyzer.convergedStates[site.caller]
+				if callerState == nil {
+					// Caller not analyzed, fall back to classifyArg
+					for i := 0; i < nParams && i < len(site.args); i++ {
+						paramStates[i] = paramStates[i].Join(classifyArg(site.args[i]))
+					}
+					continue
+				}
+
+				blockState := callerState[site.block]
+				for i := 0; i < nParams && i < len(site.args); i++ {
+					if blockState != nil {
+						if s, ok := blockState[site.args[i]]; ok {
+							paramStates[i] = paramStates[i].Join(s)
+							continue
+						}
+					}
+					// Fall back to context-free classification.
+					paramStates[i] = paramStates[i].Join(classifyArg(site.args[i]))
+				}
+			}
+
+			// Check if anything changed
+			old := p.paramsStates[callee]
+			if !nilStatesEqual(old, paramStates) {
+				changed = true
+			}
+			p.paramsStates[callee] = paramStates
+		}
+
+		// Update analyzer's param states for next iteration.
+		analyzer.paramNilStates = p
+
+		if !changed {
+			break
+		}
+	}
+
+	return p
+}
+
+func nilStatesEqual(a, b []NilState) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func ComputeParamNilStates(prog *ssa.Program, pkgs []*ssa.Package) *ParamNilStates {
@@ -73,6 +177,7 @@ func (p *ParamNilStates) collectCallSites(pkgs []*ssa.Package) map[*ssa.Function
 							}
 							sites[callee] = append(sites[callee], callSite{
 								caller: fn,
+								block:  block,
 								args:   call.Call.Args,
 							})
 						} else if goCall, ok := instr.(*ssa.Go); ok {
@@ -82,6 +187,7 @@ func (p *ParamNilStates) collectCallSites(pkgs []*ssa.Package) map[*ssa.Function
 							}
 							sites[callee] = append(sites[callee], callSite{
 								caller: fn,
+								block:  block,
 								args:   goCall.Call.Args,
 							})
 						}
