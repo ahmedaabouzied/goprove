@@ -21,7 +21,7 @@
 - None yet
 
 ## Ahmed's Background (Relevant to Project)
-- Software engineer at Adjust GmbH (ad tech / mobile attribution)
+- Software engineer (ad tech / mobile attribution)
 - Strong Go experience, works with Aerospike, Prometheus, infrastructure monitoring
 - Enjoys building from scratch to understand deeply
 - Has ML/fraud detection experience (relevant: understanding false positives/negatives)

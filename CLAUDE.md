@@ -43,17 +43,19 @@ A CLI static analysis tool for Go that uses abstract interpretation to mathemati
 
 Engineers building Go backends for:
 - Banking / payment systems
-- Ad tech / attribution (e.g., Adjust, AppsFlyer)
+- Ad tech / attribution
 - Ride-hailing / logistics (e.g., Uber, Lyft)
 - Any team that's tired of 3am pages from nil panics, division by zero, or silent integer overflow
 
 ### Core Philosophy
 
-- **Zero annotations**: The prover infers everything. No special comments, no contracts, no spec files.
-- **Sound by default**: If the prover says ✅, it's mathematically guaranteed. Orange/⚠️ means "couldn't prove either way." Red/❌ means "proven bug."
-- **Built on go/analysis**: Integrates with the existing Go tooling ecosystem (golangci-lint, CI pipelines).
-- **GC-aware**: Understands that Go has a garbage collector. Can classify functions as GC-transparent, GC-bounded, or GC-unbounded.
-- **Incremental value**: Each phase delivers a usable tool. Phase 1 alone (interval analysis) is already something that doesn't exist in the Go ecosystem.
+- **Zero annotations**: The tool infers everything. No special comments, no contracts, no spec files.
+- **Honest three-color model**: Red/Bug means "proven to crash." Orange/Warning means "couldn't prove safe or unsafe." Green/Safe (no output) means "safe for the patterns we track." We are transparent about what the analysis can and cannot prove.
+- **Sound for bugs**: When the tool says Bug, abstract interpretation has proven it across all execution paths. No false negatives for proven bugs.
+- **Incomplete for safety**: The tool doesn't track all patterns (Store/Load, interface invoke, map ok, type assertion ok). "No finding" means safe for what we track, not safe for all possible issues.
+- **Pragmatically unsound in specific cases**: Method receivers are assumed non-nil, slice MaybeNil warnings are suppressed. These are documented, intentional choices to reduce noise on real code.
+- **Built on go/ssa**: Leverages Go's SSA form for precise dataflow analysis.
+- **Incremental value**: Each phase delivers a usable tool. Phase 1 alone detects real division-by-zero bugs.
 
 ---
 

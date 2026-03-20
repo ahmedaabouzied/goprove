@@ -1,8 +1,8 @@
 # Current Phase: Phase 2 — Nil Pointer Analysis
 
-**Status**: Core complete, intraprocedural
+**Status**: Complete (intraprocedural + interprocedural returns)
 **Branch**: `main`
-**Goal**: Prove absence of nil dereferences within function boundaries.
+**Goal**: Detect nil dereferences — proven bugs and possible warnings.
 
 ## Completed Tasks
 
@@ -61,15 +61,47 @@
 - [x] FieldAddr/IndexAddr results tracked as DefinitelyNotNil — eliminates double-reporting
 - [x] Slice IndexAddr warnings suppressed (MaybeNil too noisy, deferred to Phase 3)
 
-## Phase 2 Intraprocedural Status: COMPLETE
+### 2.9 State Propagation
+- [x] initBlockState: copy/join predecessor states so refinements flow across blocks
+- [x] `if p == nil { return }; *p` pattern now correctly proves p non-nil after the guard
 
-All definition-of-done criteria met for intraprocedural analysis:
+### 2.10 Method Receiver Skip
+- [x] Method receivers (fn.Signature.Recv) initialized as DefinitelyNotNil
+- [x] Eliminates false positives on all method body dereferences
+
+### 2.11 Interprocedural Nil Summaries
+- [x] NilFunctionSummary with return nil states
+- [x] transferCall: resolve callees via CHA, compute/cache summaries, Join return states
+- [x] lookupOrComputeSummary with call depth cap (3) and sentinel caching to break recursion
+- [x] computeReturnNilStates: walk Return instructions, Join nil states across all paths
+- [x] resolveCallees: CHA resolver with StaticCallee fallback
+
+### 2.12 Global Variable Nil Tracking
+- [x] refineFromCondition stores refinement keyed by global address
+- [x] lookupNilState checks global address state for loads from refined globals
+- [x] Skip global address loads in checkInstruction (address itself is always valid)
+
+### 2.13 Message Quality + Deduplication
+- [x] nilValueName: human-readable names for parameters, globals, nil constants, call results
+- [x] Empty string for SSA register names (t0, t1) — omitted from messages
+- [x] Actionable fix tips in messages ("add a nil check before use")
+- [x] Per-function deduplication: same variable reported once, not per dereference site
+- [x] Safe Phi edge traversal (no recursion into Phi edges to avoid cycles)
+
+## Phase 2 Status: COMPLETE
+
+All definition-of-done criteria met:
 1. ✅ `goprove ./...` detects nil dereferences (proven and possible)
 2. ✅ `if p != nil { *p }` is proven safe (branch refinement)
-3. ✅ `new(T)`, `&x`, `make(...)` are proven non-nil
-4. ✅ `var p *int; *p` is a proven Bug
-5. ✅ No double-reporting on FieldAddr/IndexAddr chains
-6. ✅ 100% test coverage on nil_analyzer.go
+3. ✅ `if p == nil { return }; *p` is proven safe (state propagation)
+4. ✅ `new(T)`, `&x`, `make(...)` are proven non-nil
+5. ✅ `var p *int; *p` is a proven Bug
+6. ✅ No double-reporting on FieldAddr/IndexAddr chains
+7. ✅ Interprocedural: callee return nil states tracked via function summaries
+8. ✅ Global variables: nil checks propagate across subsequent reads
+9. ✅ Method receivers: assumed non-nil (intentional pragmatic unsoundness)
+10. ✅ Real-world validation: 32 → 1 warning on a production Go codebase
+11. ✅ 40+ integration tests, 100% unit test coverage on nil_analyzer.go
 
 ## Known Limitations (to fix later)
 

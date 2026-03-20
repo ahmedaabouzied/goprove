@@ -1,6 +1,22 @@
 # Changelog
 
-## 2026-03-20 — Nil Pointer Analysis: Intraprocedural (Phase 2)
+## 2026-03-20 — Nil Pointer Analysis: Full Phase 2
+
+### Interprocedural + Global Tracking + Message Quality
+- Interprocedural nil summaries: analyze callee return values via CHA call graph, cache summaries to avoid recomputation
+- Sentinel caching in lookupOrComputeSummary to break recursive call chains (A calls B calls A)
+- Global variable nil tracking: nil checks on globals propagate to subsequent reads of the same global
+- Skip global address loads in checkInstruction (the address itself is always valid, only the value can be nil)
+- initBlockState: predecessor state flows across blocks, fixing `if p == nil { return }; *p` pattern
+- Method receivers assumed DefinitelyNotNil (intentional pragmatic unsoundness)
+- nilValueName: human-readable names (parameters, globals, call results), empty for SSA registers
+- Actionable messages: "possible nil dereference of config — add a nil check before use"
+- Per-function deduplication: same variable reported once per function
+- Soft error handling in loader: type errors warn instead of failing (real codebases have transitive soft errors)
+- Nil package guard in Prover.Prove (packages with load errors produce nil SSA packages)
+- Real-world validation: production Go codebase went from 32 warnings to 1
+
+### Intraprocedural Foundation
 
 - Implemented NilState abstract domain with Join, Meet, Equals — 4-element lattice (NilBottom, DefinitelyNil, DefinitelyNotNil, MaybeNil)
 - Built NilAnalyzer with per-block state tracking, same worklist pattern as interval analyzer
