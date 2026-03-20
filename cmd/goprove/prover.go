@@ -14,10 +14,11 @@ import (
 )
 
 type Prover struct {
-	path     string
-	analyzer *analysis.Analyzer
-	prog     *ssa.Program
-	pkgs     []*ssa.Package
+	path             string
+	intervalAnalyzer *analysis.Analyzer
+	nilAnalyzer      *analysis.NilAnalyzer
+	prog             *ssa.Program
+	pkgs             []*ssa.Package
 }
 
 func NewProver(path string) (*Prover, error) {
@@ -30,7 +31,8 @@ func NewProver(path string) (*Prover, error) {
 	}
 	resolver := analysis.NewCHAResolver(prog)
 	analyzer := analysis.NewAnalyzer(resolver)
-	return &Prover{path, analyzer, prog, pkgs}, nil
+	nilAnalyzer := &analysis.NilAnalyzer{}
+	return &Prover{path, analyzer, nilAnalyzer, prog, pkgs}, nil
 }
 
 // provePackage is the main entry point for our prover.
@@ -78,7 +80,9 @@ func (p *Prover) analyzePkg(wd string, fset *token.FileSet, pkg *ssa.Package) er
 }
 
 func (p *Prover) analyzeFunction(fn *ssa.Function) []analysis.Finding {
-	return p.analyzer.Analyze(fn)
+	findings := p.intervalAnalyzer.Analyze(fn)
+	findings = append(findings, p.nilAnalyzer.Analyze(fn)...)
+	return findings
 }
 
 func printFinding(wd string, w *bufio.Writer, fset *token.FileSet, finding analysis.Finding) error {
