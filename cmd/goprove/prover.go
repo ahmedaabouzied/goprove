@@ -43,6 +43,9 @@ func (p *Prover) Prove() error {
 	}
 
 	for _, pkg := range p.pkgs {
+		if pkg == nil {
+			continue
+		}
 		if err := p.analyzePkg(wd, p.prog.Fset, pkg); err != nil {
 			return err
 		}

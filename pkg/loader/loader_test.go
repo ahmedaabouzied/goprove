@@ -136,11 +136,12 @@ func TestLoad(t *testing.T) {
 		require.GreaterOrEqual(t, phiCount, 2, "Nested should have at least 2 Phi nodes for loop variables")
 	})
 
-	t.Run("package with errors returns error", func(t *testing.T) {
+	t.Run("package with type errors loads with warning", func(t *testing.T) {
 		t.Parallel()
+		// Type errors are soft — loader warns to stderr but does not fail.
+		// Hard errors (parse, list) still fail.
 		_, _, err := Load("./testdata/broken")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "build errors")
+		require.NoError(t, err)
 	})
 
 	t.Run("nonexistent package returns error", func(t *testing.T) {

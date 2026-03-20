@@ -2,6 +2,7 @@ package loader
 
 import (
 	"fmt"
+	"os"
 
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
@@ -19,8 +20,12 @@ func Load(patterns ...string) (*ssa.Program, []*ssa.Package, error) {
 	prog.Build()
 
 	for _, pkg := range initial {
-		if len(pkg.Errors) > 0 {
-			return nil, nil, fmt.Errorf("package %s has build errors. Run `go build` to check them out", pkg.Dir)
+		for _, pkgErr := range pkg.Errors {
+			if pkgErr.Kind == packages.ListError || pkgErr.Kind == packages.ParseError {
+				return nil, nil, fmt.Errorf("package %s: %s", pkg.PkgPath, pkgErr.Msg)
+			}
+			// Soft errors (type-checking in transitive deps, etc.) — warn and continue.
+			fmt.Fprintf(os.Stderr, "warning: %s: %s\n", pkg.PkgPath, pkgErr.Msg)
 		}
 	}
 
