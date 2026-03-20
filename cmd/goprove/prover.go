@@ -31,7 +31,8 @@ func NewProver(path string) (*Prover, error) {
 	}
 	resolver := analysis.NewCHAResolver(prog)
 	analyzer := analysis.NewAnalyzer(resolver)
-	nilAnalyzer := analysis.NewNilAnalyzer(resolver)
+	paramStates := analysis.ComputeParamNilStates(prog, pkgs)
+	nilAnalyzer := analysis.NewNilAnalyzer(resolver, paramStates)
 	return &Prover{path, analyzer, nilAnalyzer, prog, pkgs}, nil
 }
 

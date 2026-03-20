@@ -10,24 +10,26 @@ import (
 )
 
 type NilAnalyzer struct {
-	state        map[*ssa.BasicBlock]map[ssa.Value]NilState
-	summaries    map[*ssa.Function]NilFunctionSummary
-	callDepth    int
-	maxCallDepth int
-	resolver     *CHAResolver
-	findings     []Finding
-	err          error
+	state          map[*ssa.BasicBlock]map[ssa.Value]NilState
+	summaries      map[*ssa.Function]NilFunctionSummary
+	callDepth      int
+	maxCallDepth   int
+	resolver       *CHAResolver
+	paramNilStates *ParamNilStates
+	findings       []Finding
+	err            error
 }
 
 type NilFunctionSummary struct {
 	Returns []NilState
 }
 
-func NewNilAnalyzer(resolver *CHAResolver) *NilAnalyzer {
+func NewNilAnalyzer(resolver *CHAResolver, paramStates *ParamNilStates) *NilAnalyzer {
 	return &NilAnalyzer{
-		resolver:     resolver,
-		summaries:    make(map[*ssa.Function]NilFunctionSummary),
-		maxCallDepth: 3,
+		resolver:       resolver,
+		paramNilStates: paramStates,
+		summaries:      make(map[*ssa.Function]NilFunctionSummary),
+		maxCallDepth:   3,
 	}
 }
 
@@ -45,8 +47,23 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 		workQueue = append(workQueue, block)
 	}
 
+	if a.paramNilStates != nil {
+		if states, ok := a.paramNilStates.paramsStates[fn]; ok {
+			if a.state[blocks[0]] == nil {
+				a.state[blocks[0]] = make(map[ssa.Value]NilState)
+			}
+			for i, param := range fn.Params {
+				if i < len(states) && isNillable(param) {
+					a.state[blocks[0]][param] = states[i]
+				}
+			}
+		}
+	}
+
 	if fn.Signature.Recv() != nil && len(fn.Params) > 0 && isNillable(fn.Params[0]) {
-		a.state[blocks[0]] = make(map[ssa.Value]NilState)
+		if a.state[blocks[0]] == nil {
+			a.state[blocks[0]] = make(map[ssa.Value]NilState)
+		}
 		a.state[blocks[0]][fn.Params[0]] = DefinitelyNotNil
 	}
 
@@ -386,7 +403,7 @@ func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummar
 	// Cache a conservative sentinel before analyzing to break recursive calls.
 	a.summaries[fn] = NilFunctionSummary{Returns: []NilState{MaybeNil}}
 
-	childNilAnalyzer := NewNilAnalyzer(a.resolver)
+	childNilAnalyzer := NewNilAnalyzer(a.resolver, a.paramNilStates)
 	childNilAnalyzer.callDepth = a.callDepth + 1
 	childNilAnalyzer.summaries = a.summaries
 
