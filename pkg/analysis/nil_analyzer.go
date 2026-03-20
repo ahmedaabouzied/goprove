@@ -74,9 +74,25 @@ func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 		// p.Field — v.X is the struct pointer
 		a.flagNilDeref(block, v.X, v.Pos())
 	case *ssa.IndexAddr:
-		// p[i] — v.X is the slice/array pointer
-		a.flagNilDeref(block, v.X, v.Pos())
+		if isSliceType(v.X) {
+			// Only flag proven nil for slices. MaybeNil is too noisy. It's the job of the bound checker to check slice bound access panics.
+			if a.lookupNilState(block, v.X) == DefinitelyNil {
+				a.findings = append(a.findings, Finding{
+					Pos:      v.Pos(),
+					Message:  "nil dereference",
+					Severity: Bug,
+				})
+			}
+		} else {
+			// p[i] — v.X is the slice/array pointer
+			a.flagNilDeref(block, v.X, v.Pos())
+		}
 	}
+}
+
+func isSliceType(v ssa.Value) bool {
+	_, isSlice := v.Type().Underlying().(*types.Slice)
+	return isSlice
 }
 
 func (a *NilAnalyzer) flagNilDeref(block *ssa.BasicBlock, v ssa.Value, pos token.Pos) {
