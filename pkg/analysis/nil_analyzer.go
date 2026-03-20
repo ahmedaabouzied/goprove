@@ -116,6 +116,9 @@ func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 	case *ssa.UnOp:
 		// Only pointer dereference: *p
 		if v.Op == token.MUL {
+			if _, isGlobal := v.X.(*ssa.Global); isGlobal {
+				break
+			}
 			a.flagNilDeref(block, v.X, v.Pos())
 		}
 	case *ssa.FieldAddr:
@@ -192,6 +195,18 @@ func (a *NilAnalyzer) lookupNilState(block *ssa.BasicBlock, v ssa.Value) NilStat
 			return s
 		}
 	}
+
+	// Check if this is a load from a refined global
+	if unOp, ok := v.(*ssa.UnOp); ok && unOp.Op == token.MUL {
+		if _, isGlobal := unOp.X.(*ssa.Global); isGlobal {
+			if m, ok := a.state[block]; ok {
+				if s, ok := m[unOp.X]; ok {
+					return s
+				}
+			}
+		}
+	}
+
 	return MaybeNil
 }
 
@@ -245,6 +260,12 @@ func (a *NilAnalyzer) refineFromCondition(block *ssa.BasicBlock, cond *ssa.BinOp
 		return
 	}
 	a.state[block][variable] = res
+
+	if unOp, ok := variable.(*ssa.UnOp); ok && unOp.Op == token.MUL {
+		if _, isGlobal := unOp.X.(*ssa.Global); isGlobal {
+			a.state[block][unOp.X] = res
+		}
+	}
 }
 
 func (a *NilAnalyzer) transferCall(block *ssa.BasicBlock, call *ssa.Call) {
