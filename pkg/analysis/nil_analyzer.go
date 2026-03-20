@@ -197,6 +197,10 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.state[block][v] = DefinitelyNotNil
 	case *ssa.Phi:
 		a.transferPhi(block, v)
+	case *ssa.FieldAddr: // &v always produces a not nil.
+		a.state[block][v] = DefinitelyNotNil
+	case *ssa.IndexAddr: //	&v[t1] always produces a not nil.
+		a.state[block][v] = DefinitelyNotNil
 	}
 }
 
