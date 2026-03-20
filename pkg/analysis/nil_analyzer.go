@@ -9,10 +9,25 @@ import (
 )
 
 type NilAnalyzer struct {
-	state    map[*ssa.BasicBlock]map[ssa.Value]NilState
-	resolver *CHAResolver
-	findings []Finding
-	err      error
+	state        map[*ssa.BasicBlock]map[ssa.Value]NilState
+	summaries    map[*ssa.Function]NilFunctionSummary
+	callDepth    int
+	maxCallDepth int
+	resolver     *CHAResolver
+	findings     []Finding
+	err          error
+}
+
+type NilFunctionSummary struct {
+	Returns []NilState
+}
+
+func NewNilAnalyzer(resolver *CHAResolver) *NilAnalyzer {
+	return &NilAnalyzer{
+		resolver:     resolver,
+		summaries:    make(map[*ssa.Function]NilFunctionSummary),
+		maxCallDepth: 10,
+	}
 }
 
 func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
@@ -232,6 +247,78 @@ func (a *NilAnalyzer) refineFromCondition(block *ssa.BasicBlock, cond *ssa.BinOp
 	a.state[block][variable] = res
 }
 
+func (a *NilAnalyzer) transferCall(block *ssa.BasicBlock, call *ssa.Call) {
+	callees := a.resolveCallees(call)
+	if callees == nil {
+		a.state[block][call] = MaybeNil
+		return
+	}
+
+	res := NilBottom
+	for _, callee := range callees {
+		summary := a.lookupOrComputeSummary(callee)
+		if len(summary.Returns) > 0 {
+			res = res.Join(summary.Returns[0])
+		}
+	}
+
+	a.state[block][call] = res
+}
+
+func (a *NilAnalyzer) resolveCallees(v *ssa.Call) []*ssa.Function {
+	if a.resolver != nil {
+		return a.resolver.Resolve(v)
+	}
+	if callee := v.Call.StaticCallee(); callee != nil {
+		return []*ssa.Function{callee}
+	}
+
+	return nil
+}
+
+func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummary {
+	if summary, ok := a.summaries[fn]; ok {
+		return summary
+	}
+
+	if a.callDepth >= a.maxCallDepth {
+		return NilFunctionSummary{Returns: []NilState{MaybeNil}}
+	}
+
+	childNilAnalyzer := NewNilAnalyzer(a.resolver)
+	childNilAnalyzer.callDepth = a.callDepth + 1
+	childNilAnalyzer.summaries = a.summaries
+
+	_ = childNilAnalyzer.Analyze(fn)
+
+	returns := childNilAnalyzer.computeReturnNilStates(fn)
+	summary := NilFunctionSummary{Returns: returns}
+	a.summaries[fn] = summary
+	return summary
+}
+
+func (a *NilAnalyzer) computeReturnNilStates(fn *ssa.Function) []NilState {
+	var returns []NilState
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			ret, ok := instr.(*ssa.Return)
+			if !ok {
+				continue
+			}
+			if returns == nil {
+				returns = make([]NilState, len(ret.Results))
+				for i := range returns {
+					returns[i] = NilBottom
+				}
+			}
+			for i, result := range ret.Results {
+				returns[i] = returns[i].Join(a.lookupNilState(block, result))
+			}
+		}
+	}
+	return returns
+}
+
 func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instruction) {
 	switch v := instr.(type) {
 	case *ssa.Alloc:
@@ -250,6 +337,8 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.state[block][v] = DefinitelyNotNil
 	case *ssa.IndexAddr: //	&v[t1] always produces a not nil.
 		a.state[block][v] = DefinitelyNotNil
+	case *ssa.Call:
+		a.transferCall(block, v)
 	}
 }
 

@@ -377,7 +377,7 @@ func TestNilAnalyze(t *testing.T) {
 			}
 			require.NotNil(t, fn, "function %s not found", tt.fnName)
 
-			analyzer := &analysis.NilAnalyzer{}
+			analyzer := analysis.NewNilAnalyzer(nil)
 			findings := analyzer.Analyze(fn)
 
 			require.Len(t, findings, tt.wantLen, "findings count mismatch")
@@ -452,7 +452,7 @@ func TestNilAnalyze_Testdata(t *testing.T) {
 			}
 			require.NotNil(t, fn, "function %s not found in testdata", tt.fnName)
 
-			analyzer := &analysis.NilAnalyzer{}
+			analyzer := analysis.NewNilAnalyzer(nil)
 			findings := analyzer.Analyze(fn)
 
 			require.Len(t, findings, tt.wantLen,
@@ -484,7 +484,7 @@ func TestNilAnalyze_ExternalFunction(t *testing.T) {
 	// Find any function that has no blocks (init functions or stubs).
 	// If none exist, create one synthetically via buildSSA with an
 	// empty function that the compiler might optimize to no blocks.
-	analyzer := &analysis.NilAnalyzer{}
+	analyzer := analysis.NewNilAnalyzer(nil)
 
 	// Use Double — it has blocks. Test that a non-pointer function
 	// produces no nil findings.
@@ -522,7 +522,7 @@ func TestNilAnalyze_EmptyFunction(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	analyzer := &analysis.NilAnalyzer{}
+	analyzer := analysis.NewNilAnalyzer(nil)
 	findings := analyzer.Analyze(fn)
 	require.Empty(t, findings)
 }
@@ -550,7 +550,7 @@ func TestNilAnalyze_MultiplePointerParams(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	analyzer := &analysis.NilAnalyzer{}
+	analyzer := analysis.NewNilAnalyzer(nil)
 	findings := analyzer.Analyze(fn)
 	require.Len(t, findings, 3, "each of the 3 pointer params should produce a warning")
 
@@ -590,7 +590,7 @@ func TestNilAnalyze_LoopWithNilCheck(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	analyzer := &analysis.NilAnalyzer{}
+	analyzer := analysis.NewNilAnalyzer(nil)
 	findings := analyzer.Analyze(fn)
 	// p is checked with != nil before dereference — should be safe.
 	require.Empty(t, findings,
@@ -627,7 +627,7 @@ func TestNilAnalyze_ConditionalAssignment(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	analyzer := &analysis.NilAnalyzer{}
+	analyzer := analysis.NewNilAnalyzer(nil)
 	findings := analyzer.Analyze(fn)
 	require.Len(t, findings, 1)
 	require.Equal(t, analysis.Warning, findings[0].Severity)
@@ -662,7 +662,7 @@ func TestNilAnalyze_NestedNilCheck(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	analyzer := &analysis.NilAnalyzer{}
+	analyzer := analysis.NewNilAnalyzer(nil)
 	findings := analyzer.Analyze(fn)
 	require.Empty(t, findings,
 		"nested nil checks should prove safety for both levels")
@@ -693,7 +693,7 @@ func TestNilAnalyze_ReturnNew(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	analyzer := &analysis.NilAnalyzer{}
+	analyzer := analysis.NewNilAnalyzer(nil)
 	findings := analyzer.Analyze(fn)
 	require.Empty(t, findings)
 }
@@ -727,7 +727,7 @@ func TestNilAnalyze_DerefInBothBranches(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	analyzer := &analysis.NilAnalyzer{}
+	analyzer := analysis.NewNilAnalyzer(nil)
 	findings := analyzer.Analyze(fn)
 	require.Len(t, findings, 2, "both branches deref unchecked p — two warnings")
 	for _, f := range findings {
