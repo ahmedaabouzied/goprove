@@ -16,6 +16,17 @@
 - Nil package guard in Prover.Prove (packages with load errors produce nil SSA packages)
 - Real-world validation: production Go codebase went from 32 warnings to 1
 
+### Address Model + Fix Plan Completion
+- Unified address-based memory model: replaces separate global, field, and store patches with one mechanism
+- addressKey identifies memory locations by (base, field, kind) — handles globals, fields, indices uniformly
+- resolveAddress extracts addressKey from FieldAddr, Global, IndexAddr instructions
+- Store tracking: *ssa.Store writes propagate nil state to target address
+- addrState properly reset per Analyze call (was leaking across functions)
+- Interval analyzer dedup: findings deduplicated by (position, message) — 500+ → 3 on go-redis
+- unsafe.Pointer Convert: *ssa.Convert propagates source nil state
+- Interface invoke check: s.Method() on nil interface now detected via IsInvoke()
+- go-redis validation: 0 false positives on search_commands.go field-reload pattern, 65 total unique findings
+
 ### Whole-Program Parameter Analysis
 - Fixed-point iteration: analyze all functions, compute param nil states from converged caller state, repeat until stable
 - Block-level argument lookup: at each call site, use caller's converged block state (not just SSA value type)

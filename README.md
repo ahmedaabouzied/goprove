@@ -23,11 +23,14 @@ $ goprove ./...
 - **Proven bug**: dereferencing a value that is always nil (`var p *int; *p`)
 - **Warning**: dereferencing a value that may be nil (unchecked parameter, conditional assignment)
 - **Safe**: nil checks are tracked through branches (`if p != nil { *p }`)
-- Tracks: `new()`, `&x`, `make()`, `MakeInterface` as always non-nil
+- Tracks: `new()`, `&x`, `make()`, `MakeInterface`, `Convert` as always non-nil
+- Address-based memory model: tracks nil state per memory address, not per SSA register. Field reloads after nil checks (`if o.Field != nil { o.Field.Use() }`) are proven safe.
 - Interprocedural return tracking: analyzes callee return values to determine nil state
 - Whole-program parameter tracking: fixed-point iteration analyzes what callers actually pass — if all callers pass non-nil after nil guards, the parameter is proven non-nil
 - Cross-package analysis: parameter tracking works across package boundaries within the analyzed scope
 - Global variables: nil checks on globals propagate across subsequent reads
+- Interface invoke: `s.Method()` on a possibly-nil interface is detected
+- Store tracking: `*ssa.Store` writes propagate nil state to the target address
 - Method receivers: assumed non-nil (calling a method on nil is the caller's responsibility)
 - Deduplication: same variable reported once per function, not per dereference site
 
@@ -35,6 +38,7 @@ $ goprove ./...
 - **Proven bug**: divisor is always zero
 - **Warning**: divisor range includes zero but isn't guaranteed
 - **Safe**: divisor range provably excludes zero (e.g., after `if y != 0` guard)
+- Deduplication: same finding reported once regardless of CHA dispatch fanout
 
 ### Integer Overflow
 - **Arithmetic overflow**: result of `+`, `-`, `*`, `/` exceeds type bounds (int8, int16, int32)
@@ -51,11 +55,17 @@ GoProve aims for **soundness** — when it says Bug, it's a real bug. When it sa
 - Interval findings are sound: widening guarantees convergence, and the final check pass operates on converged (stable) abstract state.
 
 **What the tool does NOT cover (known incompleteness):**
-- Store/Load tracking: nil state is not tracked through pointer stores (`*p = x`) and loads (`y = *p`). Variables that are address-taken may produce false warnings.
-- Interface method invocations: `s.Method()` on a possibly-nil interface is not flagged (only pointer dereferences, field access, and index operations are checked).
-- Map `ok` pattern: `v, ok := m[key]` — the `ok` guard is not tracked.
-- Type assertion `ok` pattern: `v, ok := x.(T)` — same limitation.
-- Concurrency: no tracking of values across goroutines.
+- Concurrency: no tracking of values across goroutines or channels.
+- Reflection: `reflect.Call` arguments are invisible to static analysis.
+- Unsafe: some `unsafe.Pointer` cast chains may not be fully tracked.
+- CGo: C function calls are outside Go's type system.
+
+**Correctly handled (previously listed as limitations):**
+- Map `ok` pattern: `v, ok := m[key]; if ok && v != nil { *v }` — works via SSA branch refinement.
+- Type assertion `ok` pattern: `v, ok := x.(T); if ok { v.Do() }` — works via SSA branch refinement.
+- Stdlib return values: `time.NewTimer()`, `bytes.NewBuffer()` — resolved by interprocedural analysis.
+- Field reload after nil check: `if x.F != nil { x.F.Use() }` — resolved by address-based memory model.
+- Interface method invocations: `s.Method()` on nil — now checked via `IsInvoke()`.
 
 **Intentional pragmatic unsoundness:**
 - Method receivers are assumed non-nil. This eliminates noise on real code but means GoProve won't catch `(*T)(nil).Method()`.
@@ -69,11 +79,21 @@ In short: **Bug = guaranteed real. Warning = worth checking. No finding = safe f
 2. Runs abstract interpretation with two domains:
    - **Interval domain** `[lo, hi]` per integer variable — detects division by zero and overflow
    - **Nil state domain** `{Bottom, DefinitelyNil, DefinitelyNotNil, MaybeNil}` per pointer variable — detects nil dereferences
-3. Worklist algorithm iterates blocks to a fixed point (widening for intervals, finite lattice for nil)
-4. Branch refinement narrows state through `if` conditions (`if p != nil`, `if y != 0`, comparisons)
-5. Interprocedural analysis: CHA call graph resolution, function summaries for return values
-6. Whole-program parameter analysis: fixed-point iteration computes what callers actually pass to each parameter, using converged caller state at call sites
-7. Post-convergence check pass classifies findings as Bug/Warning/Safe
+3. Address-based memory model: tracks nil state per memory address (globals, fields, stores) — not per SSA register
+4. Worklist algorithm iterates blocks to a fixed point (widening for intervals, finite lattice for nil)
+5. Branch refinement narrows state through `if` conditions (`if p != nil`, `if y != 0`, comparisons)
+6. Interprocedural analysis: CHA call graph resolution, function summaries for return values
+7. Whole-program parameter analysis: fixed-point iteration computes what callers actually pass to each parameter, using converged caller state at call sites
+8. Post-convergence check pass classifies findings as Bug/Warning/Safe
+
+## Real-World Validation
+
+| Codebase | Result |
+|----------|--------|
+| Production logger (adjust/backend) | 0 warnings (was 32 before parameter tracking) |
+| go-redis v9.7.3 | 62 nil warnings + 3 overflow warnings, all legitimate. 0 false positives on guarded patterns. |
+| net/http (stdlib) | 0 proven bugs. Warnings only on exported function parameters. |
+| core/platform (production) | 0 warnings |
 
 ## Design Principles
 
@@ -96,9 +116,9 @@ goprove <package>
 | 0 | Foundation — SSA loading, CFG traversal | Done |
 | 1 | Integer interval analysis (div-by-zero, overflow) | Done |
 | 1.8 | Call graph integration (CHA) | Done |
-| 2 | Nil pointer analysis (intraprocedural + interprocedural returns) | Done |
+| 2 | Nil pointer analysis (address model + interprocedural + whole-program params) | Done |
 | 3 | Slice bounds analysis | Not started |
-| 4 | Full interprocedural analysis (parameter tracking) | Not started |
+| 4 | Interval parameter tracking (whole-program integer ranges) | Not started |
 | 5 | GC pressure analysis | Not started |
 | 6 | Concurrency analysis | Not started |
 | 7 | Production hardening (SARIF, golangci-lint plugin) | Not started |

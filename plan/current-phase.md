@@ -136,37 +136,31 @@ For most Go code, variables are not address-taken and SSA uses direct values + P
 
 ## Fix Plan: Noise Reduction and Edge Cases
 
-Priority order based on real-world impact (tested on go-redis v9.7.3 and production codebases).
+### Completed Fixes
 
-### Fix 1: Interval Analyzer Finding Deduplication (HIGH — blocks usability)
-**Problem**: The interval analyzer reports the same finding once per CHA callee. A single `int(x)` conversion produces 100+ duplicate "possible integer overflow" warnings when the function is callable via many interface paths.
-**Impact**: Makes the tool unusable on any codebase with interface dispatch. go-redis has 500+ duplicate findings from 3 unique overflow sites.
-**Fix**: Add deduplication to the interval analyzer's check pass, same pattern as nil analyzer — deduplicate by `(file, line, message)` before appending to findings.
-**Effort**: Small — add `reported` map to `Analyzer.Analyze`, filter in `checkInstruction`.
+| Fix | Description | Status |
+|-----|-------------|--------|
+| 1 | Interval analyzer finding deduplication | Done — 500+ → 3 on go-redis |
+| 2 | unsafe.Pointer Convert propagation | Done — synthetic test passes, some complex chains remain |
+| 3 | Interface invoke nil check (IsInvoke) | Done — s.Method() on nil now flagged |
+| 4 | Field access after nil check (address model) | Done — unified address model replaces all patches |
 
-### Fix 2: unsafe.Pointer Conversion False Positive (MEDIUM)
-**Problem**: `*(*string)(unsafe.Pointer(&b))` produces a nil warning. `unsafe.Pointer(&b)` is always non-nil (address-of local), but SSA represents the conversion as a value that could be nil.
-**Impact**: 2 false positives in go-redis `internal/util/unsafe.go`. Any package using unsafe pointer casts will hit this.
-**Fix**: In `checkInstruction`, when checking `*ssa.UnOp{MUL}`, if `v.X` was produced by `*ssa.Convert` (unsafe pointer cast), skip the check. Alternatively, handle `*ssa.Convert` in `transferInstruction` to propagate the source value's nil state.
-**Effort**: Small — add `case *ssa.Convert` to `transferInstruction`.
+### Remaining Work
 
-### Fix 3: Interface Invoke Nil Check (MEDIUM — correctness gap)
-**Problem**: `s.Method()` on a nil interface is not flagged. The nil analyzer only checks `*ssa.UnOp{MUL}`, `*ssa.FieldAddr`, and `*ssa.IndexAddr`. Interface method invocations use `*ssa.Call` with `IsInvoke() == true`.
-**Impact**: Missing real nil dereference warnings on interface values. `MethodCallOnParam(s fmt.Stringer)` produces no warning.
-**Fix**: In `checkInstruction`, add a case for `*ssa.Call` where `v.Call.IsInvoke()` — check the receiver's nil state.
-**Effort**: Small — add invoke check to `checkInstruction`.
-
-### Fix 4: Field Access After Nil Check on Reloaded Value (LOW — rare in practice)
-**Problem**: In SSA, `if x.Field != nil { x.Field.Use() }` produces two separate loads from `x.Field`. The nil check refines the first load but the second load is a new SSA value. This is the same pattern as the global variable issue, but for struct fields.
-**Impact**: Seen in go-redis `search_commands.go` with `options.WithCursorOptions`. Uncommon pattern.
-**Fix**: Extend the global refinement approach — when refining a value that is a load from a FieldAddr, also store the refinement keyed by the FieldAddr base+index. Then in `lookupNilState`, check if the value is a load from a refined field.
-**Effort**: Medium — requires tracking FieldAddr sources similar to Global sources.
-
-### Fix 5: Tests for Param Analysis (HIGH — correctness confidence)
+### Tests for Param Analysis (HIGH — correctness confidence)
 **Problem**: `ComputeParamNilStatesAnalysis`, `collectCallSites`, and `classifyArg` have zero test coverage. These are the newest and most complex pieces.
 **Impact**: Risk of regressions in the core whole-program analysis.
 **Fix**: Write integration tests: single caller non-nil, single caller nil, multiple callers mixed, exported function no callers, recursive calls, goroutine calls.
 **Effort**: Medium — need to build multi-function SSA packages in tests.
+
+### Performance Benchmarks (MEDIUM)
+**Problem**: No performance data. The iterative param analysis re-analyzes all functions up to 5 times.
+**Impact**: Unknown scalability on large codebases (100k+ LOC).
+**Fix**: Add benchmarks, profile hot paths, consider caching strategies.
+
+### Remaining False Positives
+- Some `unsafe.Pointer` cast chains with multiple Convert steps
+- `url.Parse` multi-return pattern (non-nil when err is nil) — requires multi-return value tracking
 
 ---
 

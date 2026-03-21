@@ -18,9 +18,9 @@ Summary: 1 proven bug, 1 warning, 342 proven safe
 | 0 | Foundation | Nothing yet — understand SSA | ✅ Complete |
 | 1 | Integer Intervals | Division by zero, integer overflow | ✅ Complete |
 | 1.8 | Call Graph Integration | Interface dispatch, reusable call resolution | ✅ Complete |
-| 2 | Nil Analysis | Nil pointer dereference (intra + interprocedural) | ✅ Complete |
+| 2 | Nil Analysis | Nil pointer dereference (address model + interprocedural + whole-program params) | ✅ Complete |
 | 3 | Slice Bounds | Index out of bounds | 🔲 Not started |
-| 4 | Interprocedural | Cross-function interval analysis | 🔲 Not started |
+| 4 | Interval Param Tracking | Whole-program integer range tracking across function params | 🔲 Not started |
 | 5 | GC Pressure | Allocation behavior, GC-transparency | 🔲 Not started |
 | 6 | Concurrency | Data races, deadlocks | 🔲 Not started |
 | 7 | Production | SARIF, golangci-lint, LSP | 🔲 Not started |
