@@ -143,6 +143,14 @@ func (a *NilAnalyzer) initBlockState(block *ssa.BasicBlock) {
 
 func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction, reported map[string]bool) {
 	switch v := instr.(type) {
+	case *ssa.Call:
+		// When we call s.Method() on an interface, the ssa represents
+		// this as *ssa.Call with IsInvoke() true. The receiver is
+		// then v.Call.Value. We should check the nil state of
+		// v.Call.Value.
+		if v.Call.IsInvoke() {
+			a.flagNilDeref(block, v.Call.Value, v.Pos(), reported)
+		}
 	case *ssa.UnOp:
 		// Only pointer dereference: *p
 		if v.Op == token.MUL {
@@ -466,6 +474,8 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.state[block][v] = DefinitelyNotNil
 	case *ssa.IndexAddr: //	&v[t1] always produces a not nil.
 		a.state[block][v] = DefinitelyNotNil
+	case *ssa.Convert:
+		a.state[block][v] = a.lookupNilState(block, v.X)
 	case *ssa.Call:
 		a.transferCall(block, v)
 	}

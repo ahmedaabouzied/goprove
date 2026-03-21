@@ -258,13 +258,10 @@ func TestFalsePositive_UnsafePointerConversion(t *testing.T) {
 	analyzer := analysis.NewNilAnalyzer(nil, nil)
 	findings := analyzer.Analyze(fn)
 
-	// KNOWN FALSE POSITIVE: unsafe.Pointer(&b) is always non-nil because
-	// &b takes the address of a local variable. But the analyzer sees
-	// the Convert instruction as producing MaybeNil.
-	// When fixed (handle *ssa.Convert for unsafe.Pointer), change to:
-	//   require.Empty(t, findings)
-	require.NotEmpty(t, findings,
-		"EXPECTED FALSE POSITIVE: unsafe.Pointer conversion")
+	// FIXED: *ssa.Convert now propagates source nil state.
+	// unsafe.Pointer(&b) → &b is Alloc (DefinitelyNotNil) → Convert preserves it.
+	require.Empty(t, findings,
+		"unsafe.Pointer(&b) should be non-nil — Convert propagates source state")
 }
 
 // ---------------------------------------------------------------------------

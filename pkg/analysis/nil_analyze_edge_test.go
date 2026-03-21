@@ -873,9 +873,9 @@ func TestNilAnalyze_KnownLimitations(t *testing.T) {
 		require.Empty(t, findings, "alloc addr-of should be tracked as non-nil")
 	})
 
-	t.Run("interface invoke not checked", func(t *testing.T) {
+	t.Run("interface invoke now checked", func(t *testing.T) {
 		t.Parallel()
-		// Interface method calls use ssa.Call with IsInvoke — not checked.
+		// Interface method calls use ssa.Call with IsInvoke — now checked.
 		_, pkgs, err := loader.Load("../../pkg/testdata")
 		require.NoError(t, err)
 		require.NotEmpty(t, pkgs)
@@ -892,9 +892,10 @@ func TestNilAnalyze_KnownLimitations(t *testing.T) {
 
 		analyzer := analysis.NewNilAnalyzer(nil, nil)
 		findings := analyzer.Analyze(fn)
-		// Known limitation: interface invoke not flagged.
-		require.Empty(t, findings,
-			"interface invoke is not checked — no findings expected (known limitation)")
+		// FIXED: interface invoke is now checked via IsInvoke().
+		require.Len(t, findings, 1,
+			"interface invoke on unchecked param should warn")
+		require.Contains(t, findings[0].Message, "possible nil dereference")
 	})
 }
 

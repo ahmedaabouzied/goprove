@@ -416,9 +416,8 @@ func TestNilAnalyze_Testdata(t *testing.T) {
 
 		// Warnings
 		{"DerefParam", 1, analysis.Warning, "possible nil dereference"},
-		// MethodCallOnParam uses interface invoke (*ssa.Call with IsInvoke),
-		// which is not yet checked by the nil analyzer. No findings expected.
-		{"MethodCallOnParam", 0, 0, ""},
+		// MethodCallOnParam uses interface invoke — now checked.
+		{"MethodCallOnParam", 1, analysis.Warning, "possible nil dereference"},
 
 		// Safe — no findings
 		{"DerefAfterCheck", 0, 0, ""},
