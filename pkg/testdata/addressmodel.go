@@ -50,3 +50,38 @@ func AddrGlobalFieldReload() int {
 func AddrFieldNotChecked(o *Outer) int {
 	return o.In.Val // want "possible nil dereference"
 }
+
+// AddrDeepNested: mirrors the go-redis FTAggregateQuery pattern.
+// options is nil-checked at the top, then multiple fields are accessed
+// across many nested if blocks deep inside the guarded scope.
+type DeepConfig struct {
+	Enabled   bool
+	Name      string
+	SubConfig *SubConfig
+}
+
+type SubConfig struct {
+	Count   int
+	MaxIdle int
+}
+
+func AddrDeepNested(cfg *DeepConfig) int {
+	result := 0
+	if cfg != nil {
+		if cfg.Enabled {
+			result += 1
+		}
+		if cfg.Name != "" {
+			result += 2
+		}
+		if cfg.SubConfig != nil {
+			if cfg.SubConfig.Count > 0 {
+				result += cfg.SubConfig.Count
+			}
+			if cfg.SubConfig.MaxIdle > 0 {
+				result += cfg.SubConfig.MaxIdle
+			}
+		}
+	}
+	return result
+}
