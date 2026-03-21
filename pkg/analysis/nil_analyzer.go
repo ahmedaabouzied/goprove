@@ -10,25 +10,20 @@ import (
 )
 
 type NilAnalyzer struct {
-	state            map[*ssa.BasicBlock]map[ssa.Value]NilState
-	summaries        map[*ssa.Function]NilFunctionSummary
-	callDepth        int
-	maxCallDepth     int
-	resolver         *CHAResolver
-	paramNilStates   *ParamNilStates
-	findings         []Finding
-	convergedStates  map[*ssa.Function]map[*ssa.BasicBlock]map[ssa.Value]NilState
-	fieldRefinements map[*ssa.BasicBlock]map[fieldKey]NilState
-	err              error
+	state           map[*ssa.BasicBlock]map[ssa.Value]NilState
+	summaries       map[*ssa.Function]NilFunctionSummary
+	callDepth       int
+	maxCallDepth    int
+	resolver        *CHAResolver
+	paramNilStates  *ParamNilStates
+	findings        []Finding
+	convergedStates map[*ssa.Function]map[*ssa.BasicBlock]map[ssa.Value]NilState
+	addrState       map[*ssa.BasicBlock]map[addressKey]NilState
+	err             error
 }
 
 type NilFunctionSummary struct {
 	Returns []NilState
-}
-
-type fieldKey struct {
-	base  ssa.Value // the struct pointer
-	field int       // the field index
 }
 
 func NewNilAnalyzer(resolver *CHAResolver, paramStates *ParamNilStates) *NilAnalyzer {
@@ -71,8 +66,8 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 		}
 	}
 
-	if a.fieldRefinements == nil {
-		a.fieldRefinements = make(map[*ssa.BasicBlock]map[fieldKey]NilState)
+	if a.addrState == nil {
+		a.addrState = make(map[*ssa.BasicBlock]map[addressKey]NilState)
 	}
 
 	if fn.Signature.Recv() != nil && len(fn.Params) > 0 && isNillable(fn.Params[0]) {
@@ -150,23 +145,24 @@ func (a *NilAnalyzer) initBlockState(block *ssa.BasicBlock) {
 	}
 	a.state[block] = newState
 
-	// Propagate field refinements from predecessors.
-	newFieldRefs := make(map[fieldKey]NilState)
+	newAddrState := make(map[addressKey]NilState)
 	for _, pred := range block.Preds {
-		predRefs, ok := a.fieldRefinements[pred]
+		predAddr, ok := a.addrState[pred]
 		if !ok {
 			continue
 		}
-		for k, s := range predRefs {
-			if existing, ok := newFieldRefs[k]; ok {
-				newFieldRefs[k] = existing.Join(s)
+
+		for k, s := range predAddr {
+			if existing, ok := newAddrState[k]; ok {
+				newAddrState[k] = existing.Join(s)
 			} else {
-				newFieldRefs[k] = s
+				newAddrState[k] = s
 			}
 		}
 	}
-	if len(newFieldRefs) > 0 {
-		a.fieldRefinements[block] = newFieldRefs
+
+	if len(newAddrState) > 0 {
+		a.addrState[block] = newAddrState
 	}
 }
 
@@ -340,18 +336,9 @@ func (a *NilAnalyzer) lookupNilState(block *ssa.BasicBlock, v ssa.Value) NilStat
 
 	// Check if this is a load from a refined global
 	if unOp, ok := v.(*ssa.UnOp); ok && unOp.Op == token.MUL {
-		// Check global vars
-		if _, isGlobal := unOp.X.(*ssa.Global); isGlobal {
-			if m, ok := a.state[block]; ok {
-				if s, ok := m[unOp.X]; ok {
-					return s
-				}
-			}
-		}
-		// Check if this is a load of a refined field
-		if fa, isFieldAddress := unOp.X.(*ssa.FieldAddr); isFieldAddress {
-			if m, ok := a.fieldRefinements[block]; ok {
-				if s, ok := m[fieldKey{base: fa.X, field: fa.Field}]; ok {
+		if key, ok := resolveAddress(unOp.X); ok {
+			if m, ok := a.addrState[block]; ok {
+				if s, ok := m[key]; ok {
 					return s
 				}
 			}
@@ -412,19 +399,14 @@ func (a *NilAnalyzer) refineFromCondition(block *ssa.BasicBlock, cond *ssa.BinOp
 	}
 	a.state[block][variable] = res
 
+	// An UnOp is the SSA representation of a pointer dereference op
+	// Example: a = *b
 	if unOp, ok := variable.(*ssa.UnOp); ok && unOp.Op == token.MUL {
-		if _, isGlobal := unOp.X.(*ssa.Global); isGlobal {
-			a.state[block][unOp.X] = res
-		}
-
-		//	t1 = &t0.name [#1]
-		// Field address instruction is the SSA format of the Go
-		// statement *someStruct.A
-		if fa, isFieldAddr := unOp.X.(*ssa.FieldAddr); isFieldAddr {
-			if a.fieldRefinements[block] == nil {
-				a.fieldRefinements[block] = make(map[fieldKey]NilState)
+		if key, ok := resolveAddress(unOp.X); ok {
+			if a.addrState[block] == nil {
+				a.addrState[block] = make(map[addressKey]NilState)
 			}
-			a.fieldRefinements[block][fieldKey{base: fa.X, field: fa.Field}] = res
+			a.addrState[block][key] = res
 		}
 	}
 }
@@ -524,8 +506,19 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.state[block][v] = DefinitelyNotNil
 	case *ssa.Convert:
 		a.state[block][v] = a.lookupNilState(block, v.X)
+	case *ssa.Store:
+		a.transferStoreOp(block, v)
 	case *ssa.Call:
 		a.transferCall(block, v)
+	}
+}
+
+func (a *NilAnalyzer) transferStoreOp(block *ssa.BasicBlock, v *ssa.Store) {
+	if key, ok := resolveAddress(v.Addr); ok {
+		if a.addrState[block] == nil {
+			a.addrState[block] = make(map[addressKey]NilState)
+		}
+		a.addrState[block][key] = a.lookupNilState(block, v.Val)
 	}
 }
 
