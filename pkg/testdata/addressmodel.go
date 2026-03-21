@@ -85,3 +85,32 @@ func AddrDeepNested(cfg *DeepConfig) int {
 	}
 	return result
 }
+
+// AddrGoRedisPattern mirrors the exact go-redis FTAggregateQuery pattern.
+// options is nil-checked at the top, many fields accessed in between,
+// then a nested pointer field is nil-checked and accessed.
+func AddrGoRedisPattern(options *DeepConfig) []interface{} {
+	queryArgs := []interface{}{"query"}
+	if options != nil {
+		if options.Enabled {
+			queryArgs = append(queryArgs, "ENABLED")
+		}
+		if options.Name != "" {
+			queryArgs = append(queryArgs, "NAME", options.Name)
+		}
+		// Many intermediate accesses of options fields...
+		if options.Enabled && options.Name != "" {
+			queryArgs = append(queryArgs, "BOTH")
+		}
+		// Now the nested pointer field check:
+		if options.SubConfig != nil {
+			if options.SubConfig.Count > 0 {
+				queryArgs = append(queryArgs, "COUNT", options.SubConfig.Count)
+			}
+			if options.SubConfig.MaxIdle > 0 {
+				queryArgs = append(queryArgs, "MAXIDLE", options.SubConfig.MaxIdle)
+			}
+		}
+	}
+	return queryArgs
+}

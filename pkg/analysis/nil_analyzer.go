@@ -41,6 +41,7 @@ func (a *NilAnalyzer) SetParamNilStates(states *ParamNilStates) {
 
 func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 	a.state = make(map[*ssa.BasicBlock]map[ssa.Value]NilState)
+	a.addrState = make(map[*ssa.BasicBlock]map[addressKey]NilState)
 	a.findings = make([]Finding, 0)
 
 	blocks, err := ReversePostOrder(fn)
@@ -64,10 +65,6 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 				}
 			}
 		}
-	}
-
-	if a.addrState == nil {
-		a.addrState = make(map[*ssa.BasicBlock]map[addressKey]NilState)
 	}
 
 	if fn.Signature.Recv() != nil && len(fn.Params) > 0 && isNillable(fn.Params[0]) {
