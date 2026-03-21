@@ -127,11 +127,46 @@ _ = *p         // SSA: UnOp MUL on p's alloc — state is MaybeNil, not Definite
 ```
 For most Go code, variables are not address-taken and SSA uses direct values + Phi nodes, so this rarely causes false positives. Fix requires tracking Store destinations and propagating nil state from stored values.
 
-### No map lookup tracking
-`v, ok := m[key]` — the `ok` pattern is not tracked. `v` defaults to MaybeNil even when guarded by `ok`. Requires tracking Extract instructions from Tuple results.
+### Resolved (previously listed as limitations)
+- [x] Map lookup ok pattern (`v, ok := m[key]`) — works correctly via SSA branch refinement
+- [x] Type assertion ok pattern (`v, ok := x.(T)`) — works correctly via SSA branch refinement
+- [x] Stdlib return values (`time.NewTimer`, `bytes.NewBuffer`) — resolved by interprocedural analysis into stdlib
 
-### No type assertion tracking
-`v, ok := x.(T)` — similar to map lookup, the ok pattern is not tracked.
+---
+
+## Fix Plan: Noise Reduction and Edge Cases
+
+Priority order based on real-world impact (tested on go-redis v9.7.3 and production codebases).
+
+### Fix 1: Interval Analyzer Finding Deduplication (HIGH — blocks usability)
+**Problem**: The interval analyzer reports the same finding once per CHA callee. A single `int(x)` conversion produces 100+ duplicate "possible integer overflow" warnings when the function is callable via many interface paths.
+**Impact**: Makes the tool unusable on any codebase with interface dispatch. go-redis has 500+ duplicate findings from 3 unique overflow sites.
+**Fix**: Add deduplication to the interval analyzer's check pass, same pattern as nil analyzer — deduplicate by `(file, line, message)` before appending to findings.
+**Effort**: Small — add `reported` map to `Analyzer.Analyze`, filter in `checkInstruction`.
+
+### Fix 2: unsafe.Pointer Conversion False Positive (MEDIUM)
+**Problem**: `*(*string)(unsafe.Pointer(&b))` produces a nil warning. `unsafe.Pointer(&b)` is always non-nil (address-of local), but SSA represents the conversion as a value that could be nil.
+**Impact**: 2 false positives in go-redis `internal/util/unsafe.go`. Any package using unsafe pointer casts will hit this.
+**Fix**: In `checkInstruction`, when checking `*ssa.UnOp{MUL}`, if `v.X` was produced by `*ssa.Convert` (unsafe pointer cast), skip the check. Alternatively, handle `*ssa.Convert` in `transferInstruction` to propagate the source value's nil state.
+**Effort**: Small — add `case *ssa.Convert` to `transferInstruction`.
+
+### Fix 3: Interface Invoke Nil Check (MEDIUM — correctness gap)
+**Problem**: `s.Method()` on a nil interface is not flagged. The nil analyzer only checks `*ssa.UnOp{MUL}`, `*ssa.FieldAddr`, and `*ssa.IndexAddr`. Interface method invocations use `*ssa.Call` with `IsInvoke() == true`.
+**Impact**: Missing real nil dereference warnings on interface values. `MethodCallOnParam(s fmt.Stringer)` produces no warning.
+**Fix**: In `checkInstruction`, add a case for `*ssa.Call` where `v.Call.IsInvoke()` — check the receiver's nil state.
+**Effort**: Small — add invoke check to `checkInstruction`.
+
+### Fix 4: Field Access After Nil Check on Reloaded Value (LOW — rare in practice)
+**Problem**: In SSA, `if x.Field != nil { x.Field.Use() }` produces two separate loads from `x.Field`. The nil check refines the first load but the second load is a new SSA value. This is the same pattern as the global variable issue, but for struct fields.
+**Impact**: Seen in go-redis `search_commands.go` with `options.WithCursorOptions`. Uncommon pattern.
+**Fix**: Extend the global refinement approach — when refining a value that is a load from a FieldAddr, also store the refinement keyed by the FieldAddr base+index. Then in `lookupNilState`, check if the value is a load from a refined field.
+**Effort**: Medium — requires tracking FieldAddr sources similar to Global sources.
+
+### Fix 5: Tests for Param Analysis (HIGH — correctness confidence)
+**Problem**: `ComputeParamNilStatesAnalysis`, `collectCallSites`, and `classifyArg` have zero test coverage. These are the newest and most complex pieces.
+**Impact**: Risk of regressions in the core whole-program analysis.
+**Fix**: Write integration tests: single caller non-nil, single caller nil, multiple callers mixed, exported function no callers, recursive calls, goroutine calls.
+**Effort**: Medium — need to build multi-function SSA packages in tests.
 
 ---
 

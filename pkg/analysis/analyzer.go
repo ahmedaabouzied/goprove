@@ -98,7 +98,18 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 			a.checkInstruction(block, instr)
 		}
 	}
-	return a.findings
+	// Deduplicate findings by position + message.
+	// CHA interface dispatch can produce the same finding once per callee.
+	seen := make(map[string]bool)
+	deduped := make([]Finding, 0, len(a.findings))
+	for _, f := range a.findings {
+		key := fmt.Sprintf("%d:%s", f.Pos, f.Message)
+		if !seen[key] {
+			seen[key] = true
+			deduped = append(deduped, f)
+		}
+	}
+	return deduped
 }
 
 func (a *Analyzer) copyBlockState(block *ssa.BasicBlock) map[ssa.Value]Interval {
