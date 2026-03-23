@@ -89,11 +89,39 @@ Engineers building Go backends for:
 
 ## Install
 
+GoProve offers two modes depending on your needs:
+
+### CLI (whole-program analysis — recommended for CI)
+
 ```bash
 go install github.com/ahmedaabouzied/goprove/cmd/goprove@latest
 ```
 
+The CLI analyzes your entire program at once. It uses whole-program parameter tracking with fixed-point iteration — if all callers of a function pass non-nil after nil guards, the parameter is **proven** non-nil. This is the most accurate mode with the fewest false positives.
+
+### go/analysis plugin (for golangci-lint and go vet)
+
+```bash
+go install github.com/ahmedaabouzied/goprove/cmd/goprove-lint@latest
+```
+
+The `go/analysis` integration works with golangci-lint, `go vet`, and any tool that supports the framework. It analyzes one package at a time, so whole-program parameter tracking is not available — you may see additional warnings on parameters that the CLI would prove safe.
+
+### Which to use?
+
+| | CLI / [GitHub Action](https://github.com/ahmedaabouzied/goprove-action) | go/analysis plugin |
+|---|---|---|
+| Whole-program param tracking | Yes | No (per-package only) |
+| Cross-package nil safety | Yes | No |
+| golangci-lint / go vet | No | Yes |
+| IDE integration | No | Yes |
+| Best for | CI pipelines, full proof | Local dev, fast feedback |
+
+**Our recommendation:** use both. Run `goprove-lint` locally for quick feedback during development. Run the [GitHub Action](https://github.com/ahmedaabouzied/goprove-action) in CI for the full whole-program proof.
+
 ## Usage
+
+### CLI
 
 ```bash
 # Analyze a single package
@@ -105,6 +133,24 @@ goprove ./...
 # Use in CI — exits with code 1 if any findings
 goprove ./... || exit 1
 ```
+
+### go vet
+
+```bash
+go vet -vettool=$(which goprove-lint) ./...
+```
+
+### golangci-lint
+
+Add to your `.golangci.yml`:
+
+```yaml
+linters:
+  enable:
+    - goprove
+```
+
+(Plugin registration with golangci-lint is coming soon.)
 
 ## What It Detects
 
@@ -240,15 +286,26 @@ GoProve uses an honest three-color classification:
 
 ## CI Integration
 
-GoProve exits with code 1 when findings are detected:
+### GitHub Action (recommended — whole-program analysis)
+
+Use the [GoProve Action](https://github.com/ahmedaabouzied/goprove-action) for full whole-program proof:
 
 ```yaml
-# GitHub Actions
+- uses: ahmedaabouzied/goprove-action@v1
+  with:
+    path: ./...
+```
+
+### Manual CI step
+
+```yaml
 - name: Run GoProve
   run: |
     go install github.com/ahmedaabouzied/goprove/cmd/goprove@latest
     goprove ./...
 ```
+
+GoProve exits with code 1 when findings are detected.
 
 ## Roadmap
 
