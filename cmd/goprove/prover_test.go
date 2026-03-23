@@ -532,7 +532,7 @@ func sortFindingsForTest(findings []analysis.Finding) {
 func TestProve_ValidTestdata(t *testing.T) {
 	t.Parallel()
 	p := newTestProver(t, "../../pkg/testdata")
-	err := p.Prove()
+	_, err := p.Prove()
 	if err != nil {
 		t.Fatalf("Prove returned error: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestProve_NonexistentPath(t *testing.T) {
 func TestProve_SafePackage_NoError(t *testing.T) {
 	t.Parallel()
 	p := newTestProver(t, "../../pkg/loader")
-	err := p.Prove()
+	_, err := p.Prove()
 	if err != nil {
 		t.Fatalf("Prove on safe package returned error: %v", err)
 	}
@@ -637,8 +637,16 @@ func TestMain_ValidPackage_Succeeds(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestMain_ValidPackage_Succeeds")
 	cmd.Env = append(os.Environ(), "TEST_MAIN_VALID_PKG=1")
 	err := cmd.Run()
+	// Exit code 1 is expected — testdata has known findings.
+	// We're testing that goprove runs without crashing, not that
+	// testdata is finding-free.
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		if exitErr.ExitCode() == 1 {
+			return // findings found — expected
+		}
+	}
 	if err != nil {
-		t.Fatalf("expected success, got: %v", err)
+		t.Fatalf("expected exit code 0 or 1, got: %v", err)
 	}
 }
 
@@ -724,7 +732,7 @@ func TestProve_MultiplePackages(t *testing.T) {
 	t.Parallel()
 	// Prove can handle packages with no findings at all.
 	p := newTestProver(t, "../../pkg/loader")
-	err := p.Prove()
+	_, err := p.Prove()
 	if err != nil {
 		t.Fatalf("Prove on safe package returned error: %v", err)
 	}

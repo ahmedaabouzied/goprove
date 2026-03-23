@@ -22,8 +22,12 @@ func main() {
 	if err != nil {
 		printErrAndOsExit(err.Error())
 	}
-	if err := p.Prove(); err != nil {
+	findings, err := p.Prove()
+	if err != nil {
 		printErrAndOsExit(err.Error())
+	}
+	if findings > 0 {
+		os.Exit(1)
 	}
 }
 

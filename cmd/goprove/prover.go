@@ -38,10 +38,11 @@ func NewProver(path string) (*Prover, error) {
 }
 
 // Prove is the main entry point for our prover.
-func (p *Prover) Prove() error {
+// Returns the number of unique findings and any error.
+func (p *Prover) Prove() (int, error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// Collect findings from all packages.
@@ -84,7 +85,7 @@ func (p *Prover) Prove() error {
 		fmt.Fprint(w, output)
 	}
 
-	return w.Flush()
+	return len(seen), w.Flush()
 }
 
 func (p *Prover) analyzePkg(pkg *ssa.Package) []analysis.Finding {
