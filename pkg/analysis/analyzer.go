@@ -439,7 +439,13 @@ func (a *Analyzer) flagOverflow(block *ssa.BasicBlock, v *ssa.BinOp) {
 	// Check for type bounds
 	basic, ok := v.Type().Underlying().(*types.Basic)
 	if !ok {
-		// not a basic type (struct, slice, etc...); skip
+		// DEFENSIVE: unreachable in valid Go. All BinOp result types are *types.Basic:
+		// - Arithmetic (+, -, *, /, %, &, |, ^, <<, >>) → integer types
+		// - Comparison (==, !=, <, >, <=, >=) → bool
+		// - String concatenation (+) → string
+		// Go's type system prevents BinOp on non-basic types (structs, slices, etc.).
+		// This guard exists for safety against future SSA changes.
+		// Cannot be unit tested because ssa.BinOp has unexported type fields.
 		return
 	}
 	bound, covered := IntervalForType(basic.Kind())

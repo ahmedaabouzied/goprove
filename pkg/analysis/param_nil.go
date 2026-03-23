@@ -64,6 +64,15 @@ func ComputeParamNilStatesAnalysis(
 				// Look up argument nil state from caller's converged state.
 				callerState := analyzer.convergedStates[site.caller]
 				if callerState == nil {
+					// DEFENSIVE: unreachable under current implementation.
+					// allFunctions and collectCallSites both iterate the same pkgs.Members,
+					// so every caller that produces a call site IS in allFunctions and
+					// gets analyzed (populating convergedStates). The only way callerState
+					// could be nil is if a caller has fn.Blocks == nil (external/assembly),
+					// but collectCallSites skips such functions (no blocks → no inner loop).
+					// This guard exists for safety against future changes (e.g., if
+					// allFunctions and collectCallSites diverge in scope).
+					// Falls back to context-free classification.
 					for i := 0; i < nParams && i < len(site.args); i++ {
 						paramStates[i] = paramStates[i].Join(classifyArg(site.args[i]))
 					}
@@ -155,6 +164,9 @@ func (p *ParamNilStates) collectCallSites(pkgs []*ssa.Package) map[*ssa.Function
 	sites := make(map[*ssa.Function][]callSite)
 
 	for _, pkg := range pkgs {
+		if pkg == nil {
+			continue
+		}
 		for _, member := range pkg.Members {
 			if fn, ok := member.(*ssa.Function); ok {
 				for _, block := range fn.Blocks {

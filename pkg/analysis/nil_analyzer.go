@@ -528,6 +528,11 @@ func (a *NilAnalyzer) transferPhi(block *ssa.BasicBlock, instr *ssa.Phi) {
 	a.state[block][instr] = res
 }
 
+// IsNillableExported is an exported wrapper for isNillable, used in tests.
+func IsNillableExported(v ssa.Value) bool {
+	return isNillable(v)
+}
+
 func isNillable(v ssa.Value) bool {
 	switch v.Type().Underlying().(type) {
 	case *types.Pointer,

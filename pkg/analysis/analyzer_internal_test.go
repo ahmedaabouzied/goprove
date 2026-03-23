@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -218,6 +219,60 @@ func TestRefineFromEquality_EQL_true_wide_range_excludes_const(t *testing.T) {
 		t.Errorf("EQL true with const far outside range: expected Bottom, got %+v", refined)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// isBlockReachable: defensive paths
+// ---------------------------------------------------------------------------
+
+func TestIsBlockReachable_UnvisitedBlock(t *testing.T) {
+	t.Parallel()
+
+	block := &ssa.BasicBlock{}
+	a := &Analyzer{
+		state: make(map[*ssa.BasicBlock]map[ssa.Value]Interval),
+		// block NOT in state — unvisited
+	}
+
+	require.False(t, a.isBlockReachable(block),
+		"unvisited block should not be reachable")
+}
+
+func TestIsBlockReachable_BlockWithBottomValue(t *testing.T) {
+	t.Parallel()
+
+	block := &ssa.BasicBlock{}
+	param := &ssa.Parameter{}
+
+	a := &Analyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]Interval{
+			block: {param: Bottom()},
+		},
+	}
+
+	require.False(t, a.isBlockReachable(block),
+		"block with Bottom interval should not be reachable")
+}
+
+func TestIsBlockReachable_VisitedBlockWithValues(t *testing.T) {
+	t.Parallel()
+
+	block := &ssa.BasicBlock{}
+	param := &ssa.Parameter{}
+
+	a := &Analyzer{
+		state: map[*ssa.BasicBlock]map[ssa.Value]Interval{
+			block: {param: NewInterval(1, 10)},
+		},
+	}
+
+	require.True(t, a.isBlockReachable(block),
+		"block with non-Bottom interval should be reachable")
+}
+
+// flagOverflow non-basic type path: cannot be tested synthetically because
+// ssa.BinOp has unexported type fields. Go's type system prevents arithmetic
+// on non-basic types, so this path is unreachable in practice. The defensive
+// check exists for safety but cannot be unit tested.
 
 func TestRefineFromCondition_unsupportedOp(t *testing.T) {
 	t.Parallel()
