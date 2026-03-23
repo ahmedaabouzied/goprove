@@ -71,6 +71,10 @@ func (p *Prover) Prove() (int, error) {
 	// (interprocedural summaries, CHA dispatch, multi-package ./...).
 	// Use file:line:message as key (not token.Pos, which differs per FileSet).
 	seen := make(map[string]bool)
+
+	bugs := 0
+	warnings := 0
+
 	w := bufio.NewWriter(os.Stdout)
 	fset := p.prog.Fset
 	for _, finding := range allFindings {
@@ -82,9 +86,20 @@ func (p *Prover) Prove() (int, error) {
 			continue
 		}
 		seen[output] = true
+
+		switch finding.Severity {
+		case analysis.Bug:
+			bugs += 1
+		case analysis.Warning:
+			warnings += 1
+			// We don't care about counting others.
+		default:
+		}
+
 		fmt.Fprint(w, output)
 	}
 
+	fmt.Fprintf(w, "\n Summary: %d bugs, %d warnings.\n", bugs, warnings)
 	return len(seen), w.Flush()
 }
 
