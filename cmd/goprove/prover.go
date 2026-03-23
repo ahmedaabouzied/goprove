@@ -37,27 +37,58 @@ func NewProver(path string) (*Prover, error) {
 	return &Prover{path, analyzer, nilAnalyzer, prog, pkgs}, nil
 }
 
-// provePackage is the main entry point for our prover.
+// Prove is the main entry point for our prover.
 func (p *Prover) Prove() error {
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 
+	// Collect findings from all packages.
+	// Deduplicate packages — ssautil.AllPackages can return the same
+	// package multiple times when using ./... patterns.
+	analyzedPkgs := make(map[*ssa.Package]bool)
+	var allFindings []analysis.Finding
 	for _, pkg := range p.pkgs {
-		if pkg == nil {
+		if pkg == nil || analyzedPkgs[pkg] {
 			continue
 		}
-		if err := p.analyzePkg(wd, p.prog.Fset, pkg); err != nil {
-			return err
-		}
+		analyzedPkgs[pkg] = true
+		allFindings = append(allFindings, p.analyzePkg(pkg)...)
 	}
-	return nil
+
+	// Sort findings by severity (bugs first), then by position.
+	sort.Slice(allFindings, func(i, j int) bool {
+		if allFindings[i].Severity != allFindings[j].Severity {
+			return allFindings[i].Severity > allFindings[j].Severity
+		}
+		return allFindings[i].Pos < allFindings[j].Pos
+	})
+
+	// Deduplicate across all packages.
+	// The same source line can be reported via different analysis paths
+	// (interprocedural summaries, CHA dispatch, multi-package ./...).
+	// Use file:line:message as key (not token.Pos, which differs per FileSet).
+	seen := make(map[string]bool)
+	w := bufio.NewWriter(os.Stdout)
+	fset := p.prog.Fset
+	for _, finding := range allFindings {
+		output := formatFinding(wd, fset, finding)
+		if output == "" {
+			continue
+		}
+		if seen[output] {
+			continue
+		}
+		seen[output] = true
+		fmt.Fprint(w, output)
+	}
+
+	return w.Flush()
 }
 
-func (p *Prover) analyzePkg(wd string, fset *token.FileSet, pkg *ssa.Package) error {
-	findings := []analysis.Finding{}
-
+func (p *Prover) analyzePkg(pkg *ssa.Package) []analysis.Finding {
+	var findings []analysis.Finding
 	for _, member := range pkg.Members {
 		fn, ok := member.(*ssa.Function)
 		if !ok {
@@ -65,23 +96,7 @@ func (p *Prover) analyzePkg(wd string, fset *token.FileSet, pkg *ssa.Package) er
 		}
 		findings = append(findings, p.analyzeFunction(fn)...)
 	}
-
-	// sort findings
-	sort.Slice(findings, func(i, j int) bool {
-		// Sort the findings by severity first
-		if findings[i].Severity != findings[j].Severity {
-			return findings[i].Severity > findings[j].Severity
-		}
-		// Sort the findings by line number
-		return findings[i].Pos < findings[j].Pos
-	})
-
-	w := bufio.NewWriter(os.Stdout)
-	for _, finding := range findings {
-		printFinding(wd, w, fset, finding)
-	}
-
-	return w.Flush()
+	return findings
 }
 
 func (p *Prover) analyzeFunction(fn *ssa.Function) []analysis.Finding {
@@ -91,18 +106,23 @@ func (p *Prover) analyzeFunction(fn *ssa.Function) []analysis.Finding {
 }
 
 func printFinding(wd string, w *bufio.Writer, fset *token.FileSet, finding analysis.Finding) error {
+	_, err := fmt.Fprint(w, formatFinding(wd, fset, finding))
+	return err
+}
+
+func formatFinding(wd string, fset *token.FileSet, finding analysis.Finding) string {
 	pos := fset.Position(finding.Pos)
 	fileName, err := filepath.Rel(wd, pos.Filename)
 	if err != nil {
-		return err
+		fileName = pos.Filename
 	}
 	pos.Filename = fileName
 	switch finding.Severity {
 	case analysis.Bug:
-		fmt.Fprintf(w, "\033[31m Error: %s %s \033[0m\n", pos, finding.Message)
+		return fmt.Sprintf("\033[31m Error: %s %s \033[0m\n", pos, finding.Message)
 	case analysis.Warning:
-		fmt.Fprintf(w, "\033[33m Warning: %s %s \033[0m\n", pos, finding.Message)
+		return fmt.Sprintf("\033[33m Warning: %s %s \033[0m\n", pos, finding.Message)
 	default:
+		return ""
 	}
-	return nil
 }
