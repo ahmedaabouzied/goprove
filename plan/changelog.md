@@ -16,6 +16,21 @@
 - Nil package guard in Prover.Prove (packages with load errors produce nil SSA packages)
 - Real-world validation: production Go codebase went from 32 warnings to 1
 
+### v0.1.0 Release + go/analysis Integration
+- Tagged and published v0.1.0 on GitHub
+- GitHub Action (goprove-action) for CI integration with whole-program analysis
+- go/analysis integration: pkg/analyzer/ with Analyzer, NilAnalyzer, IntervalAnalyzer
+- goprove-lint binary (singlechecker) for `go vet -vettool` compatibility
+- goprove-multi binary (multichecker) exposing analyzers separately
+- analysistest-based tests with `// want` annotations
+- Exit code 1 on findings for CI pipelines
+- Summary line: "N bugs, M warnings"
+- Cross-package finding deduplication by formatted output string
+- 296 test functions, 99.5% statement coverage
+- README: install modes, usage (CLI/go vet/golangci-lint/GitHub Action), comparison table, soundness docs
+- Logo (gopherize.me) and CI/release/license badges
+- CI dogfooding: goprove-action runs on goprove's own repo
+
 ### Address Model + Fix Plan Completion
 - Unified address-based memory model: replaces separate global, field, and store patches with one mechanism
 - addressKey identifies memory locations by (base, field, kind) — handles globals, fields, indices uniformly

@@ -23,7 +23,7 @@ Summary: 1 proven bug, 1 warning, 342 proven safe
 | 4 | Interval Param Tracking | Whole-program integer range tracking across function params | 🔲 Not started |
 | 5 | GC Pressure | Allocation behavior, GC-transparency | 🔲 Not started |
 | 6 | Concurrency | Data races, deadlocks | 🔲 Not started |
-| 7 | Production | SARIF, golangci-lint, LSP | 🔲 Not started |
+| 7 | Production | SARIF, golangci-lint, LSP | 🔄 Partial (go/analysis done, golangci-lint submission pending) |
 
 ## Key Milestones
 
@@ -33,7 +33,8 @@ Summary: 1 proven bug, 1 warning, 342 proven safe
 - **M3**: First proven nil dereference found (Phase 2) ✅
 - **M3.5**: Zero false positives on production codebase (Phase 2) ✅
 - **M4**: First cross-function bug found (Phase 4)
-- **M5**: Open source release with CI integration (Phase 7)
+- **M5**: Open source release with CI integration (Phase 7) ✅
+- **M5.5**: go/analysis integration for golangci-lint/go vet ✅
 
 ## Non-Goals (For Now)
 - Certification against IEC 62304 or any safety standard

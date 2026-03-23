@@ -145,18 +145,36 @@ For most Go code, variables are not address-taken and SSA uses direct values + P
 | 3 | Interface invoke nil check (IsInvoke) | Done — s.Method() on nil now flagged |
 | 4 | Field access after nil check (address model) | Done — unified address model replaces all patches |
 
-### Remaining Work
+| 5 | Tests for param analysis | Done — 296 test functions, 99.5% coverage |
+| 6 | Cross-package finding deduplication | Done — dedup by formatted output string |
+| 7 | Exit code 1 on findings | Done — CI-friendly |
+| 8 | Summary line | Done — "N bugs, M warnings" |
 
-### Tests for Param Analysis (HIGH — correctness confidence)
-**Problem**: `ComputeParamNilStatesAnalysis`, `collectCallSites`, and `classifyArg` have zero test coverage. These are the newest and most complex pieces.
-**Impact**: Risk of regressions in the core whole-program analysis.
-**Fix**: Write integration tests: single caller non-nil, single caller nil, multiple callers mixed, exported function no callers, recursive calls, goroutine calls.
-**Effort**: Medium — need to build multi-function SSA packages in tests.
+### Completed Shipping Work
+
+| Item | Status |
+|------|--------|
+| v0.1.0 release tagged and published | Done |
+| GitHub Action (goprove-action) | Done — https://github.com/ahmedaabouzied/goprove-action |
+| go/analysis integration (pkg/analyzer) | Done — Analyzer, NilAnalyzer, IntervalAnalyzer |
+| goprove-lint binary (singlechecker) | Done — works with `go vet -vettool` |
+| goprove-multi binary (multichecker) | Done — exposes analyzers separately |
+| analysistest-based tests | Done — 3 test suites with `// want` annotations |
+| README with install, usage, comparison, soundness | Done |
+| Logo and badges | Done |
+| CI with goprove-action dogfooding | Done |
+
+### Remaining Work
 
 ### Performance Benchmarks (MEDIUM)
 **Problem**: No performance data. The iterative param analysis re-analyzes all functions up to 5 times.
 **Impact**: Unknown scalability on large codebases (100k+ LOC).
 **Fix**: Add benchmarks, profile hot paths, consider caching strategies.
+
+### golangci-lint Built-in Inclusion (LOW — waiting on adoption)
+**Problem**: golangci-lint doesn't support external go/analysis analyzers easily. Need to submit PR to golangci-lint repo.
+**Prerequisites**: Active maintenance, broad usefulness, tests and docs — all met.
+**Status**: `pkg/analyzer.Analyzer` is ready. Submission pending.
 
 ### Remaining False Positives
 - Some `unsafe.Pointer` cast chains with multiple Convert steps
