@@ -17,6 +17,27 @@
 
 When GoProve says a bug exists, it's guaranteed. When it says your code is safe, it's proven. When it's unsure, it tells you honestly.
 
+---
+
+## Table of Contents
+
+- [Why GoProve?](#why-goprove)
+- [Install](#install)
+- [Usage](#usage)
+- [What It Detects](#what-it-detects)
+- [How It Works](#how-it-works)
+- [Three-Color Model](#three-color-model)
+- [Comparison with Other Tools](#comparison-with-other-tools)
+- [Soundness Details](#soundness-details)
+- [Real-World Results](#real-world-results)
+- [CI Integration](#ci-integration)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Credits](#credits)
+- [License](#license)
+
+---
+
 ```
 $ goprove ./...
  Error: billing/charge.go:47 nil dereference of nil pointer — value is always nil
