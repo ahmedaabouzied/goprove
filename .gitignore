@@ -1,4 +1,5 @@
 # Binaries
+goprove
 *.exe
 *.dll
 *.so
@@ -16,6 +17,9 @@ coverage.html
 # Go workspace
 go.work
 go.work.sum
+
+# Claude Code
+.claude/
 
 # IDE
 .idea/
