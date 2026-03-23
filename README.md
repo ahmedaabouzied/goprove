@@ -9,7 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ahmedaabouzied/goprove/actions"><img src="https://github.com/ahmedaabouzied/goprove/actions/workflows/go.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ahmedaabouzied/goprove/actions/workflows/go.yml"><img src="https://github.com/ahmedaabouzied/goprove/actions/workflows/go.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ahmedaabouzied/goprove/actions/workflows/go.yml"><img src="https://img.shields.io/badge/GoProve-proven-brightgreen?logo=go" alt="GoProve"></a>
   <a href="https://github.com/ahmedaabouzied/goprove/releases"><img src="https://img.shields.io/github/v/release/ahmedaabouzied/goprove" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
@@ -249,6 +250,10 @@ git clone https://github.com/ahmedaabouzied/goprove
 cd goprove
 go test ./...
 ```
+
+## Credits
+
+Gopher mascot created with [gopherize.me](https://gopherize.me) by [Mat Ryer](https://github.com/matryer) and [Ashley McNamara](https://github.com/ashleymcnamara), based on original Go gopher by [Renee French](https://reneefrench.blogspot.com/).
 
 ## License
 
