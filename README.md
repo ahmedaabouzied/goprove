@@ -1,6 +1,18 @@
-# GoProve
+<p align="center">
+  <img src="logo.png" alt="GoProve" width="200">
+</p>
 
-A static analysis tool for Go that uses abstract interpretation to **mathematically prove** properties about your code — or tell you exactly where it can't.
+<h1 align="center">GoProve</h1>
+
+<p align="center">
+  A static analysis tool for Go that uses abstract interpretation to <strong>mathematically prove</strong> properties about your code — or tell you exactly where it can't.
+</p>
+
+<p align="center">
+  <a href="https://github.com/ahmedaabouzied/goprove/actions"><img src="https://github.com/ahmedaabouzied/goprove/actions/workflows/go.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ahmedaabouzied/goprove/releases"><img src="https://img.shields.io/github/v/release/ahmedaabouzied/goprove" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+</p>
 
 When GoProve says a bug exists, it's guaranteed. When it says your code is safe, it's proven. When it's unsure, it tells you honestly.
 
