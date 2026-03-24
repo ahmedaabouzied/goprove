@@ -1,5 +1,4 @@
 # Binaries
-goprove
 *.exe
 *.dll
 *.so
@@ -8,6 +7,8 @@ goprove
 # Build output
 /bin/
 /dist/
+/target/
+/goprove
 
 # Test
 *.test

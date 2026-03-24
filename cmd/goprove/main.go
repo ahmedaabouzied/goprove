@@ -7,12 +7,18 @@ import (
 	"os"
 
 	"github.com/ahmedaabouzied/goprove/consts"
+	"github.com/ahmedaabouzied/goprove/pkg/version"
 )
 
 func main() {
 	flag.Usage = printHelp
 	flag.Parse()
 	args := flag.Args()
+	if len(args) > 0 && args[0] == "version" {
+		// version command
+		fmt.Println(version.Info())
+		return
+	}
 
 	validateArgs(args)
 
@@ -35,9 +41,12 @@ func printHelp() {
 	w := bufio.NewWriter(os.Stdout)
 	fmt.Fprintln(w, "goprove: A code prover for Golang.")
 	fmt.Fprintln(w, "\t Usage: goprove <target_package>")
+	fmt.Fprintln(w, "\t Commands:")
+	fmt.Fprintln(w, "\t \t version : Prints version information.")
 	fmt.Fprintln(w, "\t Example: goprove fmt")
 	fmt.Fprintln(w, "\t Flags:")
 	fmt.Fprintln(w, "\t \t -h : Prints help message.")
+	fmt.Fprintf(w, "Version: %s \n", version.Info())
 	if err := w.Flush(); err != nil {
 		printErrAndOsExit(err.Error())
 	}
