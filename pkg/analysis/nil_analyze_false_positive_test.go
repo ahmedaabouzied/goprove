@@ -5,6 +5,7 @@ import (
 
 	"github.com/ahmedaabouzied/goprove/pkg/analysis"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/tools/go/ssa"
 )
 
 // ===========================================================================
@@ -368,4 +369,247 @@ func TestCorrectlyHandled_CalleeReturnNilChecked(t *testing.T) {
 
 	require.Empty(t, findings,
 		"callee return checked before use should be safe")
+}
+
+// ===========================================================================
+// Regression tests for NilBottom leak and variadic parameter false positives
+//
+// These tests cover bugs found by running goprove against a large production
+// codebase (Adjust backend). The bugs were:
+//
+// 1. computeReturnNilStates returned NilBottom for return positions the
+//    analysis couldn't observe, which downstream was treated as DefinitelyNil
+//    instead of "unknown". Fixed by promoting NilBottom → MaybeNil.
+//
+// 2. Variadic parameters (e.g., opts ...Option) were classified as
+//    DefinitelyNil when all visible callers passed no variadic args.
+//    A nil variadic slice is idiomatic Go — range over nil is a no-op.
+//    Fixed by capping variadic params at MaybeNil.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Category 12: NilBottom leak — external method chain returns
+// ---------------------------------------------------------------------------
+
+func TestRegression_NilBottomLeak_MethodChainReturn(t *testing.T) {
+	t.Parallel()
+
+	// Simulates the pattern: bitset.MustNew(n).SetAll()
+	// SetAll returns the receiver (non-nil), but the analyzer previously
+	// failed to track that and let NilBottom leak as DefinitelyNil.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		type BitSet struct{}
+
+		func NewBitSet() *BitSet {
+			return &BitSet{}
+		}
+
+		func (b *BitSet) SetAll() *BitSet {
+			return b
+		}
+
+		func useChain() {
+			bs := NewBitSet().SetAll()
+			_ = bs
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "useChain")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	require.Empty(t, findings,
+		"method chain returning receiver should not be flagged as nil")
+}
+
+func TestRegression_NilBottomLeak_ReturnFromCallee(t *testing.T) {
+	t.Parallel()
+
+	// Simulates the pattern: states := src.ToStateSliceUpTo(max)
+	// where the callee builds and returns a slice.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		type StateBitSet struct{}
+
+		func (s *StateBitSet) ToSliceUpTo(max int) []int {
+			result := make([]int, 0)
+			for i := 0; i < max; i++ {
+				result = append(result, i)
+			}
+			return result
+		}
+
+		func useSlice(s *StateBitSet) {
+			states := s.ToSliceUpTo(10)
+			if len(states) == 0 {
+				return
+			}
+			_ = states[0]
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "useSlice")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	// Should not flag states as DefinitelyNil — the callee returns
+	// a slice built with make+append.
+	for _, f := range findings {
+		require.NotContains(t, f.Message, "always nil",
+			"callee return should not be flagged as DefinitelyNil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Category 13: Variadic parameters — nil variadic is safe
+// ---------------------------------------------------------------------------
+
+func TestRegression_VariadicParam_RangeOverNilIsSafe(t *testing.T) {
+	t.Parallel()
+
+	// Simulates: func Process(opts ...func(int)) where callers pass no opts.
+	// range over nil variadic is a no-op, not a crash.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func Process(name string, opts ...func(int)) int {
+			total := 0
+			for _, o := range opts {
+				o(total)
+			}
+			return total
+		}
+
+		func caller() int {
+			return Process("test")
+		}
+	`)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	states := analysis.ComputeParamNilStatesAnalysis(
+		[]*ssa.Package{ssaPkg}, analyzer,
+	)
+	analyzer.SetParamNilStates(states)
+
+	fn := findSSAFunc(t, ssaPkg, "Process")
+	findings := analyzer.Analyze(fn)
+
+	// No Bug-severity findings for opts. range over nil is safe.
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug finding for variadic param: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_VariadicParam_WithCallerPassingArgs(t *testing.T) {
+	t.Parallel()
+
+	// When some callers DO pass variadic args, should also be fine.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func add(x int) int { return x + 1 }
+
+		func Process(name string, transforms ...func(int) int) int {
+			total := 0
+			for _, t := range transforms {
+				total = t(total)
+			}
+			return total
+		}
+
+		func caller1() int {
+			return Process("test")
+		}
+
+		func caller2() int {
+			return Process("test", add)
+		}
+	`)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	states := analysis.ComputeParamNilStatesAnalysis(
+		[]*ssa.Package{ssaPkg}, analyzer,
+	)
+	analyzer.SetParamNilStates(states)
+
+	fn := findSSAFunc(t, ssaPkg, "Process")
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug finding for variadic param: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_VariadicParam_DirectIndexWithLenGuard(t *testing.T) {
+	t.Parallel()
+
+	// Pattern: if len(hashFuncsArg) > 0 { use hashFuncsArg[0] }
+	// Even if hashFuncsArg is DefinitelyNil, the len guard makes it safe.
+	// The variadic cap ensures this isn't a Bug regardless.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func derive(seed int, extras ...[]int) int {
+			defaults := []int{1, 2, 3}
+			if len(extras) > 0 {
+				defaults = extras[0]
+			}
+			return defaults[seed%len(defaults)]
+		}
+
+		func caller() int {
+			return derive(1)
+		}
+	`)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	states := analysis.ComputeParamNilStatesAnalysis(
+		[]*ssa.Package{ssaPkg}, analyzer,
+	)
+	analyzer.SetParamNilStates(states)
+
+	fn := findSSAFunc(t, ssaPkg, "derive")
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug finding for variadic param: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_VariadicParam_NoCallersAtAll(t *testing.T) {
+	t.Parallel()
+
+	// Exported function with no visible callers — variadic param
+	// should not be flagged as DefinitelyNil.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func NewData(x int, options ...func(int) int) int {
+			v := x
+			for _, option := range options {
+				v = option(v)
+			}
+			return v
+		}
+	`)
+
+	fn := findSSAFunc(t, ssaPkg, "NewData")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug finding for variadic param with no callers: %s", f.Message)
+		}
+	}
 }
