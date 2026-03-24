@@ -74,6 +74,16 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 		a.state[blocks[0]][fn.Params[0]] = DefinitelyNotNil
 	}
 
+	// Variadic parameters: a nil variadic slice is idiomatic Go.
+	// `for _, v := range opts` on a nil slice is a no-op, not a crash.
+	// Cap at MaybeNil so it never triggers a Bug-severity finding.
+	if fn.Signature.Variadic() && len(fn.Params) > 0 {
+		lastParam := fn.Params[len(fn.Params)-1]
+		if a.state[blocks[0]] != nil && a.state[blocks[0]][lastParam] == DefinitelyNil {
+			a.state[blocks[0]][lastParam] = MaybeNil
+		}
+	}
+
 	// Iterate through the queue
 	iterations := 0
 	for len(workQueue) > 0 && iterations < maxIterations {
