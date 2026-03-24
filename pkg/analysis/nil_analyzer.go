@@ -480,6 +480,16 @@ func (a *NilAnalyzer) computeReturnNilStates(fn *ssa.Function) []NilState {
 			}
 		}
 	}
+	// If a return position is still NilBottom, it means the analysis
+	// didn't observe any return value for that position (e.g., external
+	// function, unhandled instruction, unreachable block). Fall back to
+	// MaybeNil (conservative) instead of letting NilBottom leak through
+	// as DefinitelyNil downstream.
+	for i, s := range returns {
+		if s == NilBottom {
+			returns[i] = MaybeNil
+		}
+	}
 	return returns
 }
 
