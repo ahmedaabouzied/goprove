@@ -39,11 +39,18 @@ func (h *cacheEntryHandler) readFile(name string) []byte {
 	return b
 }
 
+func (h *cacheEntryHandler) mkdirAll(path string) {
+	if h.err != nil {
+		return
+	}
+	h.err = os.MkdirAll(path, 0755)
+}
+
 func (h *cacheEntryHandler) writeFile(name string, data []byte) {
 	if h.err != nil {
 		return
 	}
-	h.err = os.WriteFile(name, data, os.ModeExclusive)
+	h.err = os.WriteFile(name, data, 0644)
 }
 
 func (h *cacheEntryHandler) unmarshal(data []byte, v any) {
@@ -84,6 +91,7 @@ func ReadCache() (CacheEntry, error) {
 func WriteCache(entry CacheEntry) error {
 	h := cacheEntryHandler{}
 	home := h.homeDir()
+	h.mkdirAll(filepath.Join(home, ".goprove"))
 	data := h.marshal(entry)
 	h.writeFile(filepath.Join(home, ".goprove", "latest-version"), data)
 	return h.err
