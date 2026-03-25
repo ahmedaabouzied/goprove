@@ -16,6 +16,7 @@ type NilAnalyzer struct {
 	maxCallDepth    int
 	resolver        *CHAResolver
 	paramNilStates  *ParamNilStates
+	targetPkgs      map[*ssa.Package]bool
 	findings        []Finding
 	convergedStates map[*ssa.Function]map[*ssa.BasicBlock]map[ssa.Value]NilState
 	addrState       map[*ssa.BasicBlock]map[addressKey]NilState
@@ -37,6 +38,18 @@ func NewNilAnalyzer(resolver *CHAResolver, paramStates *ParamNilStates) *NilAnal
 
 func (a *NilAnalyzer) SetParamNilStates(states *ParamNilStates) {
 	a.paramNilStates = states
+}
+
+// SetTargetPackages limits interprocedural analysis to the given packages.
+// Calls to functions outside these packages return conservative results
+// (MaybeNil) instead of recursively analyzing the callee body.
+func (a *NilAnalyzer) SetTargetPackages(pkgs []*ssa.Package) {
+	a.targetPkgs = make(map[*ssa.Package]bool, len(pkgs))
+	for _, pkg := range pkgs {
+		if pkg != nil {
+			a.targetPkgs[pkg] = true
+		}
+	}
 }
 
 func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
@@ -452,6 +465,11 @@ func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummar
 		return summary
 	}
 
+	// Skip functions outside the target packages — return conservative MaybeNil.
+	if a.targetPkgs != nil && !a.targetPkgs[fn.Package()] {
+		return NilFunctionSummary{Returns: []NilState{MaybeNil}}
+	}
+
 	if a.callDepth >= a.maxCallDepth {
 		return NilFunctionSummary{Returns: []NilState{MaybeNil}}
 	}
@@ -462,6 +480,7 @@ func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummar
 	childNilAnalyzer := NewNilAnalyzer(a.resolver, a.paramNilStates)
 	childNilAnalyzer.callDepth = a.callDepth + 1
 	childNilAnalyzer.summaries = a.summaries
+	childNilAnalyzer.targetPkgs = a.targetPkgs
 
 	_ = childNilAnalyzer.Analyze(fn)
 

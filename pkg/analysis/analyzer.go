@@ -19,6 +19,7 @@ type Analyzer struct {
 	callDepth    int
 	maxCallDepth int
 	resolver     *CHAResolver // nil = fallback to StaticCallee only resolver
+	targetPkgs   map[*ssa.Package]bool
 
 	findings []Finding
 	err      error
@@ -46,6 +47,18 @@ func NewAnalyzer(resolver *CHAResolver) *Analyzer {
 	}
 }
 
+// SetTargetPackages limits interprocedural analysis to the given packages.
+// Calls to functions outside these packages return conservative results
+// (Top) instead of recursively analyzing the callee body.
+func (a *Analyzer) SetTargetPackages(pkgs []*ssa.Package) {
+	a.targetPkgs = make(map[*ssa.Package]bool, len(pkgs))
+	for _, pkg := range pkgs {
+		if pkg != nil {
+			a.targetPkgs[pkg] = true
+		}
+	}
+}
+
 func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 	a.state = make(map[*ssa.BasicBlock]map[ssa.Value]Interval)
 	if a.summaries == nil {
@@ -53,7 +66,7 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 	}
 
 	if a.maxCallDepth == 0 {
-		a.maxCallDepth = 10
+		a.maxCallDepth = 3
 	}
 
 	blocks, err := ReversePostOrder(fn)
@@ -297,6 +310,11 @@ func (a *Analyzer) resolveCallees(v *ssa.Call) []*ssa.Function {
 }
 
 func (a *Analyzer) lookupOrComputeSummary(callee *ssa.Function, args []Interval) FunctionSummary {
+	// Skip functions outside the target packages — return conservative Top.
+	if a.targetPkgs != nil && !a.targetPkgs[callee.Package()] {
+		return FunctionSummary{Params: args, Returns: []Interval{Top()}}
+	}
+
 	if a.callDepth >= a.maxCallDepth {
 		return FunctionSummary{Params: args, Returns: []Interval{Top()}}
 	}
@@ -314,6 +332,7 @@ func (a *Analyzer) lookupOrComputeSummary(callee *ssa.Function, args []Interval)
 		paramOverrides: args,
 		callDepth:      a.callDepth + 1,
 		maxCallDepth:   a.maxCallDepth,
+		targetPkgs:     a.targetPkgs,
 	}
 	child.Analyze(callee)
 

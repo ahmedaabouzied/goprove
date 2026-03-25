@@ -4116,10 +4116,31 @@ func TestAnalyzeInterprocedural_Recursion(t *testing.T) {
 			message  string
 		}
 	}{
-		"direct recursion with concrete arg, terminates naturally": {
-			// factorial(5) recurses 5 levels (well under maxCallDepth=10).
+		"direct recursion with concrete arg within depth limit": {
+			// factorial(2) recurses 2 levels (within maxCallDepth=3).
 			// Each level has a concrete arg, base case n<=1 is reached.
-			// Result is precise: 120. Division is safe.
+			// Result is precise: 2. Division is safe.
+			src: `
+				package example
+
+				func factorial(n int) int {
+					if n <= 1 {
+						return 1
+					}
+					return n * factorial(n - 1)
+				}
+
+				func caller() int {
+					return 100 / factorial(2)
+				}
+			`,
+			fnName: "caller",
+			checks: nil, // factorial(2)=2, no zero
+		},
+
+		"direct recursion exceeding depth limit warns": {
+			// factorial(5) recurses 5 levels, exceeding maxCallDepth=3.
+			// Hits depth limit → returns Top → includes zero → warns.
 			src: `
 				package example
 
@@ -4135,12 +4156,17 @@ func TestAnalyzeInterprocedural_Recursion(t *testing.T) {
 				}
 			`,
 			fnName: "caller",
-			checks: nil, // factorial(5)=120, no zero
+			checks: []struct {
+				severity analysis.Severity
+				message  string
+			}{
+				{analysis.Warning, "possible division by zero"},
+			},
 		},
 
-		"mutual recursion with concrete arg, terminates naturally": {
-			// pingPong(3)→pong(2)→pingPong(1)→pong(0)→2.
-			// Only 4 levels deep. Terminates before depth limit.
+		"mutual recursion with concrete arg within depth limit": {
+			// pingPong(1)→pong(0)→2.
+			// Only 2 levels deep. Terminates before depth limit.
 			src: `
 				package example
 
@@ -4159,16 +4185,16 @@ func TestAnalyzeInterprocedural_Recursion(t *testing.T) {
 				}
 
 				func caller() int {
-					return 100 / pingPong(3)
+					return 100 / pingPong(1)
 				}
 			`,
 			fnName: "caller",
 			checks: nil, // terminates naturally, returns nonzero
 		},
 
-		"tail recursive countdown with concrete arg, terminates naturally": {
-			// countdown(3)→countdown(2)→countdown(1)→countdown(0)→42.
-			// Only 4 levels. Terminates naturally.
+		"tail recursive countdown with concrete arg within depth limit": {
+			// countdown(2)→countdown(1)→countdown(0)→42.
+			// Only 3 levels. Terminates within depth limit.
 			src: `
 				package example
 
@@ -4180,11 +4206,11 @@ func TestAnalyzeInterprocedural_Recursion(t *testing.T) {
 				}
 
 				func caller() int {
-					return 100 / countdown(3)
+					return 100 / countdown(2)
 				}
 			`,
 			fnName: "caller",
-			checks: nil, // countdown(3)=42
+			checks: nil, // countdown(2)=42
 		},
 
 		"recursion with unknown arg hits depth limit, warns": {
@@ -4258,12 +4284,11 @@ func TestAnalyzeInterprocedural_DeepChains(t *testing.T) {
 			message  string
 		}
 	}{
-		"four-level chain returning constant 3": {
+		"three-level chain returning constant 3": {
 			src: `
 				package example
 
-				func d() int { return 3 }
-				func c() int { return d() }
+				func c() int { return 3 }
 				func b() int { return c() }
 				func a() int { return b() }
 
@@ -4272,15 +4297,14 @@ func TestAnalyzeInterprocedural_DeepChains(t *testing.T) {
 				}
 			`,
 			fnName: "caller",
-			checks: nil, // a()->b()->c()->d()=3
+			checks: nil, // a()->b()->c()=3, within maxCallDepth=3
 		},
 
-		"four-level chain returning zero": {
+		"three-level chain returning zero": {
 			src: `
 				package example
 
-				func d() int { return 0 }
-				func c() int { return d() }
+				func c() int { return 0 }
 				func b() int { return c() }
 				func a() int { return b() }
 
@@ -4297,13 +4321,11 @@ func TestAnalyzeInterprocedural_DeepChains(t *testing.T) {
 			},
 		},
 
-		"five-level chain with arithmetic at each level": {
+		"three-level chain with arithmetic at each level": {
 			src: `
 				package example
 
-				func e(x int) int { return x + 1 }
-				func d(x int) int { return e(x) + 1 }
-				func c(x int) int { return d(x) + 1 }
+				func c(x int) int { return x + 1 }
 				func b(x int) int { return c(x) + 1 }
 				func a(x int) int { return b(x) + 1 }
 
@@ -4312,7 +4334,7 @@ func TestAnalyzeInterprocedural_DeepChains(t *testing.T) {
 				}
 			`,
 			fnName: "caller",
-			checks: nil, // a(0)=b(0)+1=c(0)+2=d(0)+3=e(0)+4=0+1+4=5
+			checks: nil, // a(0)=b(0)+1=c(0)+2=0+1+2=3, within maxCallDepth=3
 		},
 
 		"deep chain where middle function zeroes out": {
