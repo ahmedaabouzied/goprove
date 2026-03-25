@@ -433,7 +433,7 @@ func (a *NilAnalyzer) refineFromCondition(block *ssa.BasicBlock, cond *ssa.BinOp
 
 func (a *NilAnalyzer) transferCall(block *ssa.BasicBlock, call *ssa.Call) {
 	callees := a.resolveCallees(call)
-	if callees == nil {
+	if len(callees) == 0 {
 		a.state[block][call] = MaybeNil
 		return
 	}
@@ -444,6 +444,12 @@ func (a *NilAnalyzer) transferCall(block *ssa.BasicBlock, call *ssa.Call) {
 		if len(summary.Returns) > 0 {
 			res = res.Join(summary.Returns[0])
 		}
+	}
+
+	// If no summary produced a return (e.g., all callees had empty returns),
+	// fall back to MaybeNil instead of letting NilBottom leak as DefinitelyNil.
+	if res == NilBottom {
+		res = MaybeNil
 	}
 
 	a.state[block][call] = res

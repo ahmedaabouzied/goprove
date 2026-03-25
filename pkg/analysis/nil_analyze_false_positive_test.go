@@ -585,6 +585,432 @@ func TestRegression_VariadicParam_DirectIndexWithLenGuard(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Category 14: NilBottom leak via transferCall
+//
+// When transferCall resolves zero callees (builtins like append, len, cap)
+// or callees whose summaries have no return values, the result stayed at
+// NilBottom — which downstream is treated as DefinitelyNil.
+// Fixed by falling back to MaybeNil in both cases.
+// ---------------------------------------------------------------------------
+
+func TestRegression_NilBottomLeak_BuiltinAppend(t *testing.T) {
+	t.Parallel()
+
+	// append is a builtin with no StaticCallee. The CHA resolver returns
+	// an empty callee list. transferCall must not leave the result at NilBottom.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func buildSlice(n int) []int {
+			var s []int
+			for i := 0; i < n; i++ {
+				s = append(s, i)
+			}
+			return s
+		}
+
+		func use() {
+			s := buildSlice(10)
+			if len(s) > 0 {
+				_ = s[0]
+			}
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "use")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_NilBottomLeak_AppendInLoop(t *testing.T) {
+	t.Parallel()
+
+	// Pattern from ToStateSliceUpTo: var s []uint, append in loop, return s.
+	// Both return paths (early nil, loop result) should not produce DefinitelyNil.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		type Set struct{}
+
+		func (s *Set) Next(start int) (int, bool) {
+			return start + 1, start < 10
+		}
+
+		func (s *Set) ToSlice(cap int) []int {
+			if s == nil || cap < 0 {
+				return nil
+			}
+			var result []int
+			for i, ok := s.Next(0); ok && i <= cap; i, ok = s.Next(i + 1) {
+				result = append(result, i)
+			}
+			return result
+		}
+
+		func caller(s *Set) {
+			states := s.ToSlice(10)
+			if len(states) == 0 {
+				return
+			}
+			_ = states[0]
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "caller")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug for append-in-loop pattern: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_NilBottomLeak_SliceAppendThenDeref(t *testing.T) {
+	t.Parallel()
+
+	// Direct dereference of append result without len guard.
+	// Should be Warning (MaybeNil) at worst, never Bug (DefinitelyNil).
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func collect(items ...int) []int {
+			var result []int
+			for _, item := range items {
+				result = append(result, item*2)
+			}
+			return result
+		}
+
+		func use() {
+			s := collect(1, 2, 3)
+			_ = s[0]
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "use")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug for slice from append: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_NilBottomLeak_MakeAndAppend(t *testing.T) {
+	t.Parallel()
+
+	// make([]T, 0) + append — the make ensures non-nil, but the append
+	// result should also not be flagged.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func buildList(n int) []int {
+			result := make([]int, 0, n)
+			for i := 0; i < n; i++ {
+				result = append(result, i)
+			}
+			return result
+		}
+
+		func use() {
+			list := buildList(5)
+			_ = list[0]
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "use")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug for make+append pattern: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_NilBottomLeak_MultiReturnBuiltin(t *testing.T) {
+	t.Parallel()
+
+	// Builtins that return multiple values (e.g., map lookup with ok).
+	// The call result should not be DefinitelyNil.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func lookup(m map[string]*int, key string) int {
+			v, ok := m[key]
+			if ok && v != nil {
+				return *v
+			}
+			return 0
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "lookup")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug for map lookup pattern: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_NilBottomLeak_VarSliceNeverAppended(t *testing.T) {
+	t.Parallel()
+
+	// var s []int with no append — s IS nil. But accessing it should be
+	// a Warning (MaybeNil via Phi), not a Bug, because the control flow
+	// path may not reach the access.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func emptyOrFull(fill bool) []int {
+			var s []int
+			if fill {
+				s = append(s, 1, 2, 3)
+			}
+			return s
+		}
+
+		func use(fill bool) {
+			s := emptyOrFull(fill)
+			if len(s) > 0 {
+				_ = s[0]
+			}
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "use")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug for conditionally-filled slice: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_NilBottomLeak_CalleeReturnsNilOnAllPaths(t *testing.T) {
+	t.Parallel()
+
+	// A function that genuinely returns nil on all paths SHOULD be DefinitelyNil.
+	// This test verifies the fix doesn't suppress true positives.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func alwaysNil() *int {
+			return nil
+		}
+
+		func deref() int {
+			p := alwaysNil()
+			return *p
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "deref")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	require.NotEmpty(t, findings, "should flag dereference of always-nil return")
+	hasBug := false
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			hasBug = true
+		}
+	}
+	require.True(t, hasBug, "always-nil return deref should be Bug severity")
+}
+
+func TestRegression_NilBottomLeak_CalleeReturnsNilOnSomePaths(t *testing.T) {
+	t.Parallel()
+
+	// Function returns nil on one path, non-nil on another.
+	// Summary should be MaybeNil, not DefinitelyNil.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func maybePtr(flag bool) *int {
+			if flag {
+				x := 42
+				return &x
+			}
+			return nil
+		}
+
+		func use(flag bool) int {
+			p := maybePtr(flag)
+			if p != nil {
+				return *p
+			}
+			return 0
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "use")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	require.Empty(t, findings,
+		"nil-checked callee return should not produce any findings")
+}
+
+func TestRegression_NilBottomLeak_UnresolvedCall(t *testing.T) {
+	t.Parallel()
+
+	// Function pointer call — resolveCallees returns nil (no static callee).
+	// The result should be MaybeNil, not NilBottom/DefinitelyNil.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func consume(fn func() *int) int {
+			p := fn()
+			if p != nil {
+				return *p
+			}
+			return 0
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "consume")
+
+	// No resolver — simulates unresolved dispatch.
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug for unresolved call result: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_NilBottomLeak_ChainedCallResults(t *testing.T) {
+	t.Parallel()
+
+	// result of a().b().c() — each method returns an object used by the next.
+	// None should be flagged as DefinitelyNil.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		type Builder struct{}
+
+		func NewBuilder() *Builder {
+			return &Builder{}
+		}
+
+		func (b *Builder) WithOption(v int) *Builder {
+			return b
+		}
+
+		func (b *Builder) Result() int {
+			return 42
+		}
+
+		func use() int {
+			return NewBuilder().WithOption(1).Result()
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "use")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	require.Empty(t, findings,
+		"chained builder calls should not produce nil findings")
+}
+
+func TestRegression_NilBottomLeak_TransferCallNilBottomGuard(t *testing.T) {
+	t.Parallel()
+
+	// Callee with void return (no return values) — summary.Returns is empty.
+	// transferCall's loop produces no joins, res stays NilBottom.
+	// Must fall back to MaybeNil.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func sideEffect(x int) {}
+
+		func use() *int {
+			sideEffect(42)
+			return nil
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "use")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	// sideEffect returns void — its call result is not used as a pointer.
+	// This should not crash or produce false positives.
+	// No assertions on findings count — just verifying no panic and no Bug.
+	for _, f := range findings {
+		if f.Severity == analysis.Bug {
+			t.Errorf("unexpected Bug for void-return call: %s", f.Message)
+		}
+	}
+}
+
+func TestRegression_NilBottomLeak_ComputeReturnNilStates_NoReturnInstructions(t *testing.T) {
+	t.Parallel()
+
+	// Function with no explicit return — e.g., infinite loop or panic.
+	// computeReturnNilStates returns nil (no returns found).
+	// This should not cause downstream issues.
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func neverReturns() *int {
+			panic("boom")
+		}
+
+		func caller() int {
+			p := neverReturns()
+			return *p
+		}
+	`)
+	fn := findSSAFunc(t, ssaPkg, "caller")
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	// neverReturns panics — summary has nil returns.
+	// The dereference of p is technically unreachable.
+	// We accept either no findings or a warning — but never a Bug
+	// claiming "always nil" when the function never actually returns.
+	for _, f := range findings {
+		if f.Severity == analysis.Bug && contains(f.Message, "always nil") {
+			t.Errorf("unexpected Bug for panic-path return: %s", f.Message)
+		}
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRegression_VariadicParam_NoCallersAtAll(t *testing.T) {
 	t.Parallel()
 
