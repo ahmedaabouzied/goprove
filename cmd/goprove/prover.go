@@ -19,24 +19,35 @@ type Prover struct {
 	nilAnalyzer      *analysis.NilAnalyzer
 	prog             *ssa.Program
 	pkgs             []*ssa.Package
+	progress         *Progress
 }
 
-func NewProver(path string) (*Prover, error) {
+func NewProver(path string, progress *Progress) (*Prover, error) {
+	done := progress.Phase("Loading packages")
 	prog, pkgs, err := loader.Load(path)
 	if err != nil {
 		return nil, err
 	}
+	done()
 	if len(pkgs) < 1 {
 		return nil, fmt.Errorf("no packages found at %s", path)
 	}
+
+	done = progress.Phase("Building call graph")
 	resolver := analysis.NewCHAResolver(prog)
+	done()
+
 	analyzer := analysis.NewAnalyzer(resolver)
 	analyzer.SetTargetPackages(pkgs)
 	nilAnalyzer := analysis.NewNilAnalyzer(resolver, nil)
 	nilAnalyzer.SetTargetPackages(pkgs)
+
+	done = progress.Phase("Computing parameter states")
 	paramStates := analysis.ComputeParamNilStatesAnalysis(pkgs, nilAnalyzer)
 	nilAnalyzer.SetParamNilStates(paramStates)
-	return &Prover{path, analyzer, nilAnalyzer, prog, pkgs}, nil
+	done()
+
+	return &Prover{path, analyzer, nilAnalyzer, prog, pkgs, progress}, nil
 }
 
 // Prove is the main entry point for our prover.
@@ -51,19 +62,24 @@ func (p *Prover) Prove() (int, error) {
 	// Deduplicate packages — ssautil.AllPackages can return the same
 	// package multiple times when using ./... patterns.
 	analyzedPkgs := make(map[*ssa.Package]bool)
+	total := len(p.pkgs)
+	count := 0
 	var allFindings []analysis.Finding
 	for _, pkg := range p.pkgs {
 		if pkg == nil || analyzedPkgs[pkg] {
 			continue
 		}
 		analyzedPkgs[pkg] = true
+		count++
+		p.progress.Pkg(count, total, pkg.Pkg.Path())
 		allFindings = append(allFindings, p.analyzePkg(pkg)...)
 	}
+	p.progress.Done()
 
-	// Sort findings by severity (bugs first), then by position.
+	// Sort findings by severity (warnings first, bugs last), then by position.
 	sort.Slice(allFindings, func(i, j int) bool {
 		if allFindings[i].Severity != allFindings[j].Severity {
-			return allFindings[i].Severity > allFindings[j].Severity
+			return allFindings[i].Severity < allFindings[j].Severity
 		}
 		return allFindings[i].Pos < allFindings[j].Pos
 	})

@@ -10,6 +10,8 @@ import (
 	"github.com/ahmedaabouzied/goprove/pkg/version"
 )
 
+var interactive = flag.Bool("i", false, "show progress during analysis")
+
 func main() {
 	flag.Usage = printHelp
 	flag.Parse()
@@ -24,7 +26,12 @@ func main() {
 
 	targetPackage := args[0]
 
-	p, err := NewProver(targetPackage)
+	var progress *Progress
+	if *interactive {
+		progress = NewProgress()
+	}
+
+	p, err := NewProver(targetPackage, progress)
 	if err != nil {
 		printErrAndOsExit(err.Error())
 	}
@@ -45,6 +52,7 @@ func printHelp() {
 	fmt.Fprintln(w, "\t \t version : Prints version information.")
 	fmt.Fprintln(w, "\t Example: goprove fmt")
 	fmt.Fprintln(w, "\t Flags:")
+	fmt.Fprintln(w, "\t \t -i : Show progress during analysis.")
 	fmt.Fprintln(w, "\t \t -h : Prints help message.")
 	fmt.Fprintf(w, "Version: %s \n", version.Info())
 	if err := w.Flush(); err != nil {

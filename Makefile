@@ -43,6 +43,11 @@ build-all:
 	GOOS=linux GOARCH=amd64 $(MAKE) build
 	GOOS=linux GOARCH=arm64 $(MAKE) build
 
+# Build and install goprove to /usr/local/bin.
+.PHONY: install
+install: build
+	sudo install -m 755 $(TARGET_DIR)/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
+
 # Run all tests.
 .PHONY: test
 test:
