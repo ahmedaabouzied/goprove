@@ -78,7 +78,11 @@ func Upgrade() error {
 		return fmt.Errorf("failed to check latest version: %w", err)
 	}
 	if !IsNewerVersion(version.Version, latest) {
-		fmt.Fprintf(os.Stderr, "Already up to date (%s)\n", version.Version)
+		if version.Version != "" {
+			fmt.Fprintf(os.Stderr, "Already up to date (%s)\n", version.Version)
+		} else {
+			fmt.Fprintln(os.Stderr, "Already up to date.")
+		}
 		return nil
 	}
 	fmt.Fprintf(os.Stderr, "Upgrading goprove %s → %s\n", version.Version, latest)
