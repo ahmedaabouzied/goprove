@@ -50,6 +50,14 @@ Things learned while building GoProve. Updated as we go.
 - **SSA optimizes away `make([]T, constant)`**: When slice length is a constant, SSA may inline the allocation and not produce an `*ssa.MakeSlice` instruction. Use parameter-based lengths in test fixtures to force MakeSlice emission.
 - **Synthetic `ssa.Parameter{}` has no type**: Cannot use bare `&ssa.Parameter{}` in tests that call `isNillable` — it panics on `v.Type().Underlying()`. Use `ssa.NewConst(...)` with proper types for synthetic tests.
 
+## Seed Analysis Learnings
+
+- **`pkg.Members` only contains top-level named functions.** Methods, closures, and init functions are NOT in `pkg.Members`. To find methods, iterate `pkg.Members` for `*ssa.Type` and get their method sets. For closures, recurse into `fn.AnonFuncs`. This was the #1 source of false positives — `collectCallSites` and `allFunctions` both missed half the program.
+- **`*ssa.Extract` is how Go multi-return works in SSA.** `f, err := os.Open(path)` becomes `Call` → `Extract #0` (f) → `Extract #1` (err). If `transferInstruction` doesn't handle Extract, the extracted values have no state and default to MaybeNil. This is the #2 source of false positives.
+- **Go's ok-pattern depends on Extract + branch refinement working together.** `v, ok := m[key]; if ok { v.Use() }` requires: (1) Lookup produces tuple, (2) Extract #0 gets value, Extract #1 gets bool, (3) branch refinement on the bool narrows the value's state. Missing any step breaks the chain.
+- **Fixed-size arrays are value types in Go.** `[256]byte` cannot be nil. Indexing one is not a pointer dereference. `isSliceType` distinguishes slices but not arrays from pointers-to-arrays.
+- **FP rate is the adoption gate.** 23 real bugs in 20 popular libraries is genuinely useful. But at 98.8% FP rate, no one will use the tool. Signal-to-noise ratio matters more than raw detection capability.
+
 ## Defensive Coding
 
 - Value receivers on methods that modify struct state silently discard changes. Always use pointer receivers on Analyzer methods.

@@ -1,8 +1,91 @@
-# Current Phase: Phase 2 — Nil Pointer Analysis
+# Current Phase: Phase 2.5 — False Positive Reduction
+
+**Status**: In progress
+**Branch**: `main`
+**Goal**: Reduce FP rate from 98.8% to <30% based on seed analysis of 20 OSS modules.
+
+## Context
+
+GoProve v0.2.3 was run against 20 popular Go modules (fiber, testify, validator, echo, gin, gjson, cobra, zerolog, etc.). Results: 1,948 findings, 1,925 false positives (98.8%), 23 true positives. Full report: `reports/2026-03-26-seed-analysis.md`.
+
+The 23 true positives were genuinely valuable (discarded Stat() errors in echo/zerolog, reflect.TypeOf(nil) panics, integer overflow in decimal, missing bounds check in gin). The analysis works — it's just drowning in noise.
+
+## Root Cause Analysis
+
+| Root Cause | FPs | % of All FP | Severity |
+|-----------|----:|------------|----------|
+| `collectCallSites` misses methods + closures — only walks `pkg.Members` top-level functions | 897 | 46.6% | **P0** |
+| `Extract` instruction not handled in `transferInstruction` — breaks multi-return patterns (`f, err := ...`) | ~600 | ~31% | **P0** |
+| `TypeAssert` and `Lookup` not handled — breaks `x, ok := val.(T)` and `v, ok := m[k]` | ~150 | ~8% | **P1** |
+| No stdlib return guarantees — external functions default to MaybeNil | 83 | 4.3% | **P2** |
+| Array `IndexAddr` flagged as nil deref — fixed-size arrays are value types | ~81 | ~4.2% | **P2** |
+| Type switch/assertion narrowing not tracked | 46 | 2.4% | **P3** |
+| Interface dispatch imprecision | 38 | 2.0% | **P3** |
+
+## Tasks
+
+### P0 — Critical (eliminates ~87% of FPs)
+
+#### P0-A: Fix `collectCallSites` to discover all functions
+- [ ] Walk `pkg.Members` for top-level functions (existing)
+- [ ] Recurse into `fn.AnonFuncs` for closures
+- [ ] Discover methods via type members (iterate `pkg.Members` for `*ssa.Type`, get methods)
+- [ ] Fix `allFunctions` collection (lines 31-42) to match — same bug
+- [ ] Test: method call sites are found, closure call sites are found
+- [ ] Validate: re-run on fiber (604 FPs should drop significantly)
+
+#### P0-B: Handle `*ssa.Extract` in `transferInstruction`
+- [ ] Add `case *ssa.Extract` to `transferInstruction`
+- [ ] Propagate nil state from the tuple result: if the parent is a `*ssa.Call`, look up the call's summary for the extracted index
+- [ ] For `Extract #0` from a call returning `(T, error)`: state comes from function summary
+- [ ] For `Extract #1` (error): default to MaybeNil (errors can always be nil)
+- [ ] Test: `f, err := os.Open(path); if err == nil { f.Read(...) }` — f should be MaybeNil (not safe yet, but no longer flagged after nil-error check once we track the correlation)
+- [ ] Validate: re-run on testify (556 FPs should drop)
+
+### P1 — High (eliminates ~8% of FPs)
+
+#### P1-A: Handle `*ssa.TypeAssert` in `transferInstruction`
+- [ ] Add `case *ssa.TypeAssert` to `transferInstruction`
+- [ ] If `CommaOk == true`: the result is a tuple, Extract #0 is the value (MaybeNil until ok-checked), Extract #1 is the bool
+- [ ] If `CommaOk == false`: the result is DefinitelyNotNil (panics if assertion fails, so if we get past it, it's non-nil)
+- [ ] Test: `v, ok := x.(Stringer); if ok { v.String() }` — no warning
+
+#### P1-B: Handle `*ssa.Lookup` in `transferInstruction`
+- [ ] Add `case *ssa.Lookup` to `transferInstruction`
+- [ ] If `CommaOk == true`: tuple result, Extract #0 is the value, Extract #1 is the bool
+- [ ] If `CommaOk == false`: value type determines nil state
+- [ ] Test: `v, ok := m[key]; if ok { v.Method() }` — no warning
+
+### P2 — Medium (eliminates ~8% of FPs)
+
+#### P2-A: Stdlib return guarantees
+- [ ] Create a curated map of `func → []NilState` for common stdlib constructors
+- [ ] Include: `md5.New`, `sha256.New`, `hmac.New`, `http.Request.Context`, `fmt.Errorf`, `errors.New`, `context.Background`, `context.TODO`, `bytes.NewBuffer`, `strings.NewReader`, etc.
+- [ ] Consult in `lookupOrComputeSummary` before defaulting to MaybeNil for external functions
+- [ ] Test: `h := md5.New(); h.Write(data)` — no warning
+
+#### P2-B: Array IndexAddr distinction
+- [ ] In `checkInstruction` IndexAddr else branch: check if `v.X.Type().Underlying()` is `*types.Array` or `*types.Pointer` to `*types.Array`
+- [ ] If array type: skip nil check entirely (value type, cannot be nil)
+- [ ] Test: `var buf [256]byte; _ = buf[0]` — no warning
+
+### P3 — Low (eliminates ~4% of FPs)
+
+- [ ] Type switch refinement: track narrowed type inside case branches
+- [ ] Interface dispatch precision improvements
+
+## Definition of Done
+
+- [ ] FP rate on seed modules < 30% (down from 98.8%)
+- [ ] All 23 true positives still detected (no regressions)
+- [ ] Tests for each new transfer function case
+- [ ] Re-run seed analysis and update `reports/`
+
+---
+
+# Previous Phase: Phase 2 — Nil Pointer Analysis
 
 **Status**: Complete (intraprocedural + interprocedural returns)
-**Branch**: `main`
-**Goal**: Detect nil dereferences — proven bugs and possible warnings.
 
 ## Completed Tasks
 

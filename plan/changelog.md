@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-03-26 — Seed Analysis: 20 OSS Modules
+
+### Findings
+- Ran GoProve v0.2.3 against 20 popular Go modules (fiber, testify, validator, echo, gin, gjson, cobra, zerolog, cron, decimal, chi, mux, viper, multierror, otp, mapstructure, uuid, backoff, logrus, go-cache)
+- **1,948 total findings**: 1,925 false positives (98.8%), 23 true positives (1.2%)
+- 97% of findings are nil_deref category — interval/overflow analysis is relatively clean
+
+### True Positives (the good news)
+- Echo: discarded `f.Stat()` error → nil `FileInfo` panic (4 findings)
+- Zerolog: `reflect.TypeOf(nil).Kind()` panic, discarded `os.Stdin.Stat()` error, division by zero in `appendUnixNanoTimes`
+- Gin: missing negative overflow check in `safeInt8`
+- Decimal: `abs(math.MinInt32)` overflows
+- Testify: `reflect.TypeOf(nil)` in assertion helpers
+
+### Root Cause Analysis
+- **46.6%**: `collectCallSites` only walks `pkg.Members` — misses methods and closures entirely
+- **~31%**: `*ssa.Extract` not handled in `transferInstruction` — breaks all multi-return patterns
+- **~8%**: `*ssa.TypeAssert` and `*ssa.Lookup` not handled
+- **4.3%**: No stdlib return value modeling (external → MaybeNil)
+- **4.2%**: Array IndexAddr flagged as nil deref (arrays are value types)
+
+### Decision
+- Created Phase 2.5 (False Positive Reduction) to fix these before proceeding to Phase 3
+- P0 fixes alone (collectCallSites + Extract) should cut FP rate to ~20-30%
+
 ## 2026-03-20 — Nil Pointer Analysis: Full Phase 2
 
 ### Interprocedural + Global Tracking + Message Quality

@@ -241,6 +241,40 @@
 
 ---
 
+## ADR-016: Phase 2.5 — Fix FP rate before new features
+
+**Date**: 2026-03-26
+**Status**: Accepted
+
+**Context**: Seed analysis of 20 OSS modules revealed a 98.8% false positive rate (1,925 FP out of 1,948 findings). The tool found 23 genuine bugs but they're buried in noise. Continuing to Phase 3 (slice bounds) would add more findings on top of an already unusable signal-to-noise ratio.
+
+**Decision**: Insert Phase 2.5 (False Positive Reduction) before Phase 3. Fix the two P0 root causes first: (1) `collectCallSites` missing methods/closures, (2) `*ssa.Extract` not handled in transfer functions. Target: FP rate < 30%.
+
+**Rationale**:
+- 87% of FPs come from just two bugs — high leverage fixes
+- A tool with 98.8% FP rate will not be adopted, no matter how many analyses it supports
+- The 23 true positives prove the analysis is fundamentally sound — it's a plumbing problem, not a design problem
+- Phase 3 depends on good nil analysis (slice bounds interact with nil slices) — fixing nil first makes Phase 3 cleaner
+
+---
+
+## ADR-017: Handle Extract/TypeAssert/Lookup as transfer functions
+
+**Date**: 2026-03-26
+**Status**: Accepted
+
+**Context**: `transferInstruction` doesn't handle `*ssa.Extract`, `*ssa.TypeAssert`, or `*ssa.Lookup`. These are the SSA representations of Go's multi-return patterns (`f, err := ...`), type assertions (`v, ok := x.(T)`), and map lookups (`v, ok := m[k]`). Without them, the result values fall through to `lookupNilState`'s default of `MaybeNil`.
+
+**Decision**: Add transfer function cases for all three instruction types. For Extract, propagate nil state from the parent instruction's summary (call return index). For TypeAssert with `CommaOk == false`, mark result as DefinitelyNotNil (it panics otherwise). For Lookup, handle based on value type.
+
+**Rationale**:
+- These are the three most common Go patterns that produce tuple results
+- Without Extract handling, every `f, err := os.Open()` produces a false positive on `f`
+- The fix is mechanical — add cases to an existing switch statement
+- Sound: TypeAssert without ok panics on failure, so reaching the next instruction proves non-nil
+
+---
+
 ## ADR-015: FieldAddr/IndexAddr results are DefinitelyNotNil
 
 **Date**: 2026-03-20

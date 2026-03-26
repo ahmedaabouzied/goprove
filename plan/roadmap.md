@@ -19,6 +19,7 @@ Summary: 1 proven bug, 1 warning, 342 proven safe
 | 1 | Integer Intervals | Division by zero, integer overflow | ✅ Complete |
 | 1.8 | Call Graph Integration | Interface dispatch, reusable call resolution | ✅ Complete |
 | 2 | Nil Analysis | Nil pointer dereference (address model + interprocedural + whole-program params) | ✅ Complete |
+| 2.5 | False Positive Reduction | Fix 98.8% FP rate found in seed analysis of 20 OSS modules | 🔄 In progress |
 | 3 | Slice Bounds | Index out of bounds | 🔲 Not started |
 | 4 | Interval Param Tracking | Whole-program integer range tracking across function params | 🔲 Not started |
 | 5 | GC Pressure | Allocation behavior, GC-transparency | 🔲 Not started |
@@ -32,6 +33,8 @@ Summary: 1 proven bug, 1 warning, 342 proven safe
 - **M2.5**: First proven integer overflow bug found (Phase 1) ✅
 - **M3**: First proven nil dereference found (Phase 2) ✅
 - **M3.5**: Zero false positives on production codebase (Phase 2) ✅
+- **M3.6**: Seed analysis of 20 OSS modules — 98.8% FP rate identified (Phase 2.5)
+- **M3.7**: FP rate below 30% on seed modules (Phase 2.5)
 - **M4**: First cross-function bug found (Phase 4)
 - **M5**: Open source release with CI integration (Phase 7) ✅
 - **M5.5**: go/analysis integration for golangci-lint/go vet ✅
