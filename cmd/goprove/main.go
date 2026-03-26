@@ -23,6 +23,13 @@ func main() {
 		return
 	}
 
+	if len(args) > 0 && args[0] == "upgrade" {
+		if err := updater.Upgrade(); err != nil {
+			printErrAndOsExit(err.Error())
+		}
+		return
+	}
+
 	validateArgs(args)
 
 	targetPackage := args[0]
@@ -35,7 +42,7 @@ func main() {
 	// Check for updates
 	if latest := updater.CheckForUpdates(); latest != "" {
 		fmt.Fprintf(os.Stderr, "A new version of goprove is available: %s (current: %s)\n", latest, version.Version)
-		fmt.Fprintln(os.Stderr, "Upgrade with: go install github.com/ahmedaabouzied/goprove/cmd/goprove@latest")
+		fmt.Fprintln(os.Stderr, "Run 'goprove upgrade' to update.")
 	}
 
 	p, err := NewProver(targetPackage, progress)
@@ -57,6 +64,7 @@ func printHelp() {
 	fmt.Fprintln(w, "\t Usage: goprove <target_package>")
 	fmt.Fprintln(w, "\t Commands:")
 	fmt.Fprintln(w, "\t \t version : Prints version information.")
+	fmt.Fprintln(w, "\t \t upgrade : Upgrades goprove to the latest version.")
 	fmt.Fprintln(w, "\t Example: goprove fmt")
 	fmt.Fprintln(w, "\t Flags:")
 	fmt.Fprintln(w, "\t \t -i : Show progress during analysis.")

@@ -2,6 +2,8 @@ package updater
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +70,28 @@ func CheckForUpdates() string {
 		return entry.LatestVersion
 	}
 	return ""
+}
+
+func Upgrade() error {
+	latest, err := FetchLatestVersion()
+	if err != nil {
+		return fmt.Errorf("failed to check latest version: %w", err)
+	}
+	if !IsNewerVersion(version.Version, latest) {
+		fmt.Fprintf(os.Stderr, "Already up to date (%s)\n", version.Version)
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "Upgrading goprove %s → %s\n", version.Version, latest)
+	cmd := exec.Command("go", "install", "github.com/ahmedaabouzied/goprove/cmd/goprove@latest")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("upgrade failed: %w", err)
+	}
+	// Update cache so the "new version available" notification goes away.
+	_ = WriteCache(CacheEntry{LatestVersion: latest, CheckedAt: time.Now()})
+	fmt.Fprintf(os.Stderr, "Upgraded to %s\n", latest)
+	return nil
 }
 
 func backgroundFetch() {
