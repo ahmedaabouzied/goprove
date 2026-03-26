@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/ahmedaabouzied/goprove/consts"
+	"github.com/ahmedaabouzied/goprove/pkg/updater"
 	"github.com/ahmedaabouzied/goprove/pkg/version"
 )
 
@@ -29,6 +30,12 @@ func main() {
 	var progress *Progress
 	if *interactive {
 		progress = NewProgress()
+	}
+
+	// Check for updates
+	if latest := updater.CheckForUpdates(); latest != "" {
+		fmt.Fprintf(os.Stderr, "A new version of goprove is available: %s (current: %s)\n", latest, version.Version)
+		fmt.Fprintln(os.Stderr, "Upgrade with: go install github.com/ahmedaabouzied/goprove/cmd/goprove@latest")
 	}
 
 	p, err := NewProver(targetPackage, progress)
