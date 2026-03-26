@@ -14,9 +14,16 @@ func Info() string {
 		return fmt.Sprintf("goprove %s (%s) built %s", Version, Commit, Date)
 	}
 
-	// Dev build. Version is empty
+	// Dev build or go install. Version is empty.
 	buildInfo, ok := debug.ReadBuildInfo()
 	if ok {
+		// go install ...@v0.2.0 sets Main.Version to "v0.2.0".
+		// go install ...@latest also sets it to the resolved version.
+		if v := buildInfo.Main.Version; v != "" && v != "(devel)" {
+			Version = v // Populate so upgrade check works too.
+			return fmt.Sprintf("goprove %s", v)
+		}
+
 		commit := ""
 		dirty := false
 		suffix := ""
