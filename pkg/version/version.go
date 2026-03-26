@@ -9,21 +9,29 @@ var Version string // LDFlag target
 var Commit string  // LDFlag target
 var Date string    // LDFlag target
 
+func init() {
+	if Version != "" {
+		return
+	}
+	// go install ...@v0.2.0 sets Main.Version to "v0.2.0".
+	// go install ...@latest also sets it to the resolved version.
+	if buildInfo, ok := debug.ReadBuildInfo(); ok {
+		if v := buildInfo.Main.Version; v != "" && v != "(devel)" {
+			Version = v
+		}
+	}
+}
+
 func Info() string {
 	if Version != "" {
-		return fmt.Sprintf("goprove %s (%s) built %s", Version, Commit, Date)
+		if Commit != "" {
+			return fmt.Sprintf("goprove %s (%s) built %s", Version, Commit, Date)
+		}
+		return fmt.Sprintf("goprove %s", Version)
 	}
 
-	// Dev build or go install. Version is empty.
-	buildInfo, ok := debug.ReadBuildInfo()
-	if ok {
-		// go install ...@v0.2.0 sets Main.Version to "v0.2.0".
-		// go install ...@latest also sets it to the resolved version.
-		if v := buildInfo.Main.Version; v != "" && v != "(devel)" {
-			Version = v // Populate so upgrade check works too.
-			return fmt.Sprintf("goprove %s", v)
-		}
-
+	// Dev build — no ldflags and no module version.
+	if buildInfo, ok := debug.ReadBuildInfo(); ok {
 		commit := ""
 		dirty := false
 		suffix := ""
