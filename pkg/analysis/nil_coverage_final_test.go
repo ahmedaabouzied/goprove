@@ -95,7 +95,7 @@ func TestCovFinal_ZeroParamFunction(t *testing.T) {
 
 	// CallerOfZeroParam calls ZeroParamFunc which has 0 params.
 	// ComputeParamNilStates should hit the nParams == 0 continue.
-	states := analysis.ComputeParamNilStates(nil, pkgs)
+	states := analysis.ComputeParamNilStates(nil, pkgs, nil)
 	require.NotNil(t, states)
 
 	// ZeroParamFunc should NOT be in the param states map.
@@ -119,7 +119,7 @@ func TestCovFinal_GoInterfaceDispatchNilCallee(t *testing.T) {
 	// LaunchWorker does `go w.Work()` where w is an interface.
 	// StaticCallee() returns nil for interface dispatch.
 	// collectCallSites should hit the nil callee continue in the Go branch.
-	states := analysis.ComputeParamNilStates(nil, pkgs)
+	states := analysis.ComputeParamNilStates(nil, pkgs, nil)
 	require.NotNil(t, states)
 }
 

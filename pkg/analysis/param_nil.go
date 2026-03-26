@@ -1,6 +1,9 @@
 package analysis
 
-import "golang.org/x/tools/go/ssa"
+import (
+	"golang.org/x/tools/go/callgraph"
+	"golang.org/x/tools/go/ssa"
+)
 
 type ParamNilStates struct {
 	// paramStates maps each function to the nil state of its parameters.
@@ -25,18 +28,35 @@ func ComputeParamNilStatesAnalysis(
 	p := &ParamNilStates{
 		paramsStates: make(map[*ssa.Function][]NilState),
 	}
-	sites := p.collectCallSites(pkgs)
+	sites := p.collectCallSites(pkgs, analyzer.Graph())
+
+	pkgsMap := make(map[*ssa.Package]bool)
+	for _, pkg := range pkgs {
+		if pkg != nil {
+			pkgsMap[pkg] = true
+		}
+	}
 
 	var allFunctions []*ssa.Function
-
-	for _, pkg := range pkgs {
-		if pkg == nil {
-			continue
-		}
-
-		for _, member := range pkg.Members {
-			if fn, ok := member.(*ssa.Function); ok {
+	if graph := analyzer.Graph(); graph != nil {
+		for fn, node := range graph.Nodes {
+			if node == nil || node.Func == nil {
+				continue
+			}
+			pkg := node.Func.Package()
+			if pkg != nil && pkgsMap[pkg] {
 				allFunctions = append(allFunctions, fn)
+			}
+		}
+	} else {
+		for _, pkg := range pkgs {
+			if pkg == nil {
+				continue
+			}
+			for _, member := range pkg.Members {
+				if fn, ok := member.(*ssa.Function); ok {
+					allFunctions = append(allFunctions, fn)
+				}
 			}
 		}
 	}
@@ -123,12 +143,12 @@ func nilStatesEqual(a, b []NilState) bool {
 	return true
 }
 
-func ComputeParamNilStates(prog *ssa.Program, pkgs []*ssa.Package) *ParamNilStates {
+func ComputeParamNilStates(prog *ssa.Program, pkgs []*ssa.Package, graph *callgraph.Graph) *ParamNilStates {
 	p := &ParamNilStates{
 		paramsStates: make(map[*ssa.Function][]NilState),
 	}
 
-	sites := p.collectCallSites(pkgs)
+	sites := p.collectCallSites(pkgs, graph)
 
 	for callee, callSites := range sites {
 		nParams := len(callee.Params)
@@ -153,7 +173,39 @@ func ComputeParamNilStates(prog *ssa.Program, pkgs []*ssa.Package) *ParamNilStat
 	return p
 }
 
-func (p *ParamNilStates) collectCallSites(pkgs []*ssa.Package) map[*ssa.Function][]callSite {
+func (p *ParamNilStates) collectCallSites(pkgs []*ssa.Package, graph *callgraph.Graph) map[*ssa.Function][]callSite {
+	if graph == nil {
+		return p.collectCallSitesByWalk(pkgs)
+	}
+	sites := make(map[*ssa.Function][]callSite)
+
+	pkgsMap := map[*ssa.Package]interface{}{}
+	for _, pkg := range pkgs {
+		pkgsMap[pkg] = struct{}{}
+	}
+
+	for fn, node := range graph.Nodes {
+		if node == nil || node.Func == nil {
+			continue
+		}
+		pkg := node.Func.Package()
+		if pkg == nil {
+			continue
+		}
+
+		if _, exists := pkgsMap[pkg]; !exists {
+			continue
+		}
+
+		for _, edge := range node.In {
+			sites[fn] = append(sites[fn], callSite{edge.Caller.Func, edge.Site.Block(), edge.Site.Common().Args})
+		}
+	}
+
+	return sites
+}
+
+func (p *ParamNilStates) collectCallSitesByWalk(pkgs []*ssa.Package) map[*ssa.Function][]callSite {
 	// 1. Iterate all packages
 	// 2. For each package, iterate all Members to find *ssa.Function
 	// 3. For each function, iterate all blocks and instructions

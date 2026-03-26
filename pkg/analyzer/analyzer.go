@@ -93,7 +93,8 @@ func analyzePackage(
 
 	if runNil {
 		// Compute param nil states from call sites within this package.
-		paramStates := proveanalysis.ComputeParamNilStates(nil, []*ssa.Package{pkg})
+		// It's okay to pass the resolver as nil. This is the single package mode.
+		paramStates := proveanalysis.ComputeParamNilStates(nil, []*ssa.Package{pkg}, nil)
 		nilAnalyzer = proveanalysis.NewNilAnalyzer(nil, paramStates)
 	}
 	if runInterval {

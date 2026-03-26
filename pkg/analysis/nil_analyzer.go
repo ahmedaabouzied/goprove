@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"maps"
 
+	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -34,6 +35,13 @@ func NewNilAnalyzer(resolver *CHAResolver, paramStates *ParamNilStates) *NilAnal
 		summaries:      make(map[*ssa.Function]NilFunctionSummary),
 		maxCallDepth:   3,
 	}
+}
+
+func (a *NilAnalyzer) Graph() *callgraph.Graph {
+	if a.resolver == nil {
+		return nil
+	}
+	return a.resolver.graph
 }
 
 func (a *NilAnalyzer) SetParamNilStates(states *ParamNilStates) {

@@ -34,7 +34,7 @@ func TestParamNilStates_SingleCallerNonNil(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	require.NotNil(t, states)
 
 	helperFn := findSSAFunc(t, ssaPkg, "helper")
@@ -65,7 +65,7 @@ func TestParamNilStates_SingleCallerNil(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	require.NotNil(t, states)
 
 	helperFn := findSSAFunc(t, ssaPkg, "helper")
@@ -99,7 +99,7 @@ func TestParamNilStates_MultipleCallersMixed(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	require.NotNil(t, states)
 
 	helperFn := findSSAFunc(t, ssaPkg, "helper")
@@ -137,7 +137,7 @@ func TestParamNilStates_MultipleCallersAllNonNil(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	require.NotNil(t, states)
 
 	helperFn := findSSAFunc(t, ssaPkg, "helper")
@@ -159,7 +159,7 @@ func TestParamNilStates_NoCallers(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	require.NotNil(t, states)
 
 	fn := findSSAFunc(t, ssaPkg, "NoCaller")
@@ -185,7 +185,7 @@ func TestParamNilStates_NonNillableParam(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	require.NotNil(t, states)
 
 	fn := findSSAFunc(t, ssaPkg, "intHelper")
@@ -215,7 +215,7 @@ func TestParamNilStates_MakeProducers(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	require.NotNil(t, states)
 
 	for _, name := range []string{"useSlice", "useMap", "useChan"} {
@@ -244,7 +244,7 @@ func TestParamNilStates_MultipleParams(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	require.NotNil(t, states)
 
 	fn := findSSAFunc(t, ssaPkg, "twoParams")
@@ -393,7 +393,7 @@ func TestParamNilStates_StatesGetter(t *testing.T) {
 		func g() int { return f(new(int)) }
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	m := states.States()
 	require.NotNil(t, m, "States() should return non-nil map")
 }

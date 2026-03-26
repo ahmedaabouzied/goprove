@@ -223,7 +223,7 @@ func TestCoverage_CollectCallSitesGoRoutine(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	require.NotNil(t, states)
 
 	fn := findSSAFunc(t, ssaPkg, "worker")
@@ -253,7 +253,7 @@ func TestCoverage_ClassifyArgFieldAddr(t *testing.T) {
 		}
 	`)
 
-	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg})
+	states := analysis.ComputeParamNilStates(nil, []*ssa.Package{ssaPkg}, nil)
 	fn := findSSAFunc(t, ssaPkg, "takePtr")
 	paramStates := states.States()[fn]
 	if len(paramStates) > 0 {
