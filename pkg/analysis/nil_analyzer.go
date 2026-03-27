@@ -560,7 +560,39 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.transferStoreOp(block, v)
 	case *ssa.Call:
 		a.transferCall(block, v)
+	case *ssa.Extract:
+		a.transferExtractInstr(block, v)
 	}
+}
+
+func (a *NilAnalyzer) transferExtractInstr(block *ssa.BasicBlock, v *ssa.Extract) {
+	if call, isCall := v.Tuple.(*ssa.Call); isCall {
+		/*
+				Example: f, err := os.Open(path)
+			  t0 = Call os.Open(path)        → type: (*os.File, error)  [this is a *ssa.Call]
+			  t1 = Extract t0 #0             → type: *os.File            [this is *ssa.Extract, Index=0]
+			  t2 = Extract t0 #1             → type: error               [this is *ssa.Extract, Index=1]
+		*/
+		if callee := call.Call.StaticCallee(); callee != nil {
+			summary := a.lookupOrComputeSummary(callee)
+			if v.Index < len(summary.Returns) {
+				a.state[block][v] = summary.Returns[v.Index]
+				return
+			}
+			// It's not expected to have summary of the callee
+			// having less returns than our value index.
+			// We default to MaybeNil here if this happens.
+			a.state[block][v] = MaybeNil
+			return
+		}
+		// Callee is nil. Strange.
+		// We fall back to MaybeNil
+		a.state[block][v] = MaybeNil
+	}
+	// Tuple is not an *ssa.Call. Can be a TypeAssert
+	// or CommaOk. For now we fall back to MaybeNil.
+	// TODO: Handle these cases
+	a.state[block][v] = MaybeNil
 }
 
 func (a *NilAnalyzer) transferStoreOp(block *ssa.BasicBlock, v *ssa.Store) {
