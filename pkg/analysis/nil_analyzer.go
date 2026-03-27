@@ -562,6 +562,33 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.transferCall(block, v)
 	case *ssa.Extract:
 		a.transferExtractInstr(block, v)
+	case *ssa.TypeAssert:
+		a.transferTypeAssertInstr(block, v)
+	}
+}
+
+func (a *NilAnalyzer) transferTypeAssertInstr(block *ssa.BasicBlock, v *ssa.TypeAssert) {
+	/*
+				Example 1 (Not CommaOk):
+				v := x.(T)
+				SSA Representation is:
+				t0 = TypeAssert x.(*T)
+				If the assertion fails this panics.
+
+				Example 2 (CommaOk):
+				v, ok := x.(T)
+		 		t0 = TypeAssert x.(*T) ,ok → type: (*T, bool)
+		  	t1 = Extract t0 #0     → type: *T
+		  	t2 = Extract t0 #1     → type: bool
+	*/
+	if !v.CommaOk {
+		// In both cases of v being nillable or not,
+		// because this op panics on failure,
+		// if we're here, the conversion succeeded
+		a.state[block][v] = DefinitelyNotNil
+	} else {
+		// CommaOk. This is an tuple instruction now
+		a.state[block][v] = MaybeNil
 	}
 }
 
@@ -588,8 +615,10 @@ func (a *NilAnalyzer) transferExtractInstr(block *ssa.BasicBlock, v *ssa.Extract
 		// Callee is nil. Strange.
 		// We fall back to MaybeNil
 		a.state[block][v] = MaybeNil
+		return
 	}
-	// Tuple is not an *ssa.Call. Can be a TypeAssert
+	// Tuple is not an *ssa.Call.
+	// Check if it's a TypeAssert
 	// or CommaOk. For now we fall back to MaybeNil.
 	// TODO: Handle these cases
 	a.state[block][v] = MaybeNil
