@@ -27,34 +27,32 @@ The 23 true positives were genuinely valuable (discarded Stat() errors in echo/z
 ### P0 — Critical (eliminates ~87% of FPs)
 
 #### P0-A: Fix `collectCallSites` to discover all functions
-- [ ] Walk `pkg.Members` for top-level functions (existing)
-- [ ] Recurse into `fn.AnonFuncs` for closures
-- [ ] Discover methods via type members (iterate `pkg.Members` for `*ssa.Type`, get methods)
-- [ ] Fix `allFunctions` collection (lines 31-42) to match — same bug
-- [ ] Test: method call sites are found, closure call sites are found
-- [ ] Validate: re-run on fiber (604 FPs should drop significantly)
+- [x] Walk `pkg.Members` for top-level functions (existing)
+- [x] CHA call graph path discovers methods + closures via `graph.Nodes`
+- [x] `allFunctions` collection uses CHA graph nodes filtered by target packages
+- [x] Validated: validator/v10 dropped by 188 FPs (-62.7%), interface_dispatch FPs eliminated entirely
+- Note: `collectCallSitesByWalk` fallback still only walks `pkg.Members` (no closures). Not a priority since CHA path is the default.
 
 #### P0-B: Handle `*ssa.Extract` in `transferInstruction`
-- [ ] Add `case *ssa.Extract` to `transferInstruction`
-- [ ] Propagate nil state from the tuple result: if the parent is a `*ssa.Call`, look up the call's summary for the extracted index
-- [ ] For `Extract #0` from a call returning `(T, error)`: state comes from function summary
-- [ ] For `Extract #1` (error): default to MaybeNil (errors can always be nil)
-- [ ] Test: `f, err := os.Open(path); if err == nil { f.Read(...) }` — f should be MaybeNil (not safe yet, but no longer flagged after nil-error check once we track the correlation)
-- [ ] Validate: re-run on testify (556 FPs should drop)
+- [x] Add `case *ssa.Extract` to `transferInstruction` → calls `transferExtractInstr`
+- [x] If tuple is `*ssa.Call`: resolve callee, index into `summary.Returns[v.Index]`
+- [x] Nil callee (interface dispatch / indirect call) → falls back to MaybeNil
+- [x] Non-call tuple (TypeAssert CommaOk, Lookup CommaOk) → falls back to MaybeNil
+- [x] 24 tests covering two-return, three-return, single-return regression, non-call tuples, stdlib, interprocedural, edge cases
 
 ### P1 — High (eliminates ~8% of FPs)
 
 #### P1-A: Handle `*ssa.TypeAssert` in `transferInstruction`
-- [ ] Add `case *ssa.TypeAssert` to `transferInstruction`
-- [ ] If `CommaOk == true`: the result is a tuple, Extract #0 is the value (MaybeNil until ok-checked), Extract #1 is the bool
-- [ ] If `CommaOk == false`: the result is DefinitelyNotNil (panics if assertion fails, so if we get past it, it's non-nil)
-- [ ] Test: `v, ok := x.(Stringer); if ok { v.String() }` — no warning
+- [x] Add `case *ssa.TypeAssert` → calls `transferTypeAssertInstr`
+- [x] `CommaOk == false`: result is DefinitelyNotNil (panics on failure)
+- [x] `CommaOk == true`: result is tuple → MaybeNil (Extract handles individual values)
+- [x] 24 tests covering non-CommaOk (pointer, slice, map, func, value types), CommaOk patterns (ok+nil, nil-only, ok-only, early return), control flow, true positives, regressions
 
 #### P1-B: Handle `*ssa.Lookup` in `transferInstruction`
-- [ ] Add `case *ssa.Lookup` to `transferInstruction`
-- [ ] If `CommaOk == true`: tuple result, Extract #0 is the value, Extract #1 is the bool
-- [ ] If `CommaOk == false`: value type determines nil state
-- [ ] Test: `v, ok := m[key]; if ok { v.Method() }` — no warning
+- [x] Add `case *ssa.Lookup` → calls `transferMapLookup`
+- [x] `CommaOk == false`: nillable value type → MaybeNil, non-nillable → DefinitelyNotNil
+- [x] `CommaOk == true`: tuple → MaybeNil (Extract handles individual values)
+- [x] 30 tests covering nillable values (pointer, slice, map, func, interface, chan), non-nillable values (int, string, bool, struct), CommaOk patterns, nil map, loops, true positives, regressions
 
 ### P2 — Medium (eliminates ~8% of FPs)
 
@@ -73,6 +71,14 @@ The 23 true positives were genuinely valuable (discarded Stat() errors in echo/z
 
 - [ ] Type switch refinement: track narrowed type inside case branches
 - [ ] Interface dispatch precision improvements
+
+### P4 — Enhancements (discovered during P1 work)
+
+#### P4-A: Detect nil func value calls
+- [ ] In `checkInstruction` `*ssa.Call` case: if not `IsInvoke()` and callee is a func-typed SSA value (not a static function), check its nil state
+- [ ] `fn := m[key]; fn()` should warn when fn is MaybeNil
+- [ ] Applies to func parameters, map lookups, struct fields holding func values
+- [ ] Test: func value from map lookup called without nil check → Warning
 
 ## Definition of Done
 

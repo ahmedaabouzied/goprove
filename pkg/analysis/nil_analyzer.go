@@ -564,22 +564,48 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.transferExtractInstr(block, v)
 	case *ssa.TypeAssert:
 		a.transferTypeAssertInstr(block, v)
+	case *ssa.Lookup:
+		a.transferMapLookup(block, v)
 	}
+}
+
+func (a *NilAnalyzer) transferMapLookup(block *ssa.BasicBlock, v *ssa.Lookup) {
+	/*
+		Example 1 (Not CommaOk):
+		v := m[key]
+		SSA Represtantion:
+		t0 = Lookup m key  -> type: V
+
+		Example 2 (CommaOk):
+		v, ok := m[key]
+		t0 = Lookup m key, ok  -> type (V, bool)
+		t1 = Extract t0 #0     -> type: V
+		t2 = Extract t0 #1     -> type: bool
+	*/
+	if !v.CommaOk {
+		if isNillable(v) {
+			a.state[block][v] = MaybeNil
+			return
+		}
+		a.state[block][v] = DefinitelyNotNil
+		return
+	}
+	a.state[block][v] = MaybeNil
 }
 
 func (a *NilAnalyzer) transferTypeAssertInstr(block *ssa.BasicBlock, v *ssa.TypeAssert) {
 	/*
-				Example 1 (Not CommaOk):
-				v := x.(T)
-				SSA Representation is:
-				t0 = TypeAssert x.(*T)
-				If the assertion fails this panics.
+		Example 1 (Not CommaOk):
+		v := x.(T)
+		SSA Representation is:
+		t0 = TypeAssert x.(*T)
+		If the assertion fails this panics.
 
-				Example 2 (CommaOk):
-				v, ok := x.(T)
-		 		t0 = TypeAssert x.(*T) ,ok → type: (*T, bool)
-		  	t1 = Extract t0 #0     → type: *T
-		  	t2 = Extract t0 #1     → type: bool
+		Example 2 (CommaOk):
+		v, ok := x.(T)
+		t0 = TypeAssert x.(*T) ,ok → type: (*T, bool)
+		t1 = Extract t0 #0     → type: *T
+		t2 = Extract t0 #1     → type: bool
 	*/
 	if !v.CommaOk {
 		// In both cases of v being nillable or not,
@@ -595,10 +621,10 @@ func (a *NilAnalyzer) transferTypeAssertInstr(block *ssa.BasicBlock, v *ssa.Type
 func (a *NilAnalyzer) transferExtractInstr(block *ssa.BasicBlock, v *ssa.Extract) {
 	if call, isCall := v.Tuple.(*ssa.Call); isCall {
 		/*
-				Example: f, err := os.Open(path)
-			  t0 = Call os.Open(path)        → type: (*os.File, error)  [this is a *ssa.Call]
-			  t1 = Extract t0 #0             → type: *os.File            [this is *ssa.Extract, Index=0]
-			  t2 = Extract t0 #1             → type: error               [this is *ssa.Extract, Index=1]
+			Example: f, err := os.Open(path)
+			t0 = Call os.Open(path)        → type: (*os.File, error)  [this is a *ssa.Call]
+			t1 = Extract t0 #0             → type: *os.File            [this is *ssa.Extract, Index=0]
+			t2 = Extract t0 #1             → type: error               [this is *ssa.Extract, Index=1]
 		*/
 		if callee := call.Call.StaticCallee(); callee != nil {
 			summary := a.lookupOrComputeSummary(callee)
@@ -617,10 +643,7 @@ func (a *NilAnalyzer) transferExtractInstr(block *ssa.BasicBlock, v *ssa.Extract
 		a.state[block][v] = MaybeNil
 		return
 	}
-	// Tuple is not an *ssa.Call.
-	// Check if it's a TypeAssert
-	// or CommaOk. For now we fall back to MaybeNil.
-	// TODO: Handle these cases
+	// Not an *ssa.Call. Fall back to MaybeNil.
 	a.state[block][v] = MaybeNil
 }
 
