@@ -83,6 +83,13 @@ The 23 true positives were genuinely valuable (discarded Stat() errors in echo/z
 #### P4-B: MakeClosure and Function references are DefinitelyNotNil
 - [x] `*ssa.MakeClosure` added to `transferInstruction` → DefinitelyNotNil (closures with captures)
 - [x] `*ssa.Function` handled in `lookupNilState` → DefinitelyNotNil (no-capture closures and function references)
+- [x] 22 tests covering no-capture closures, captured closures, multi-return, true positives, regressions
+
+#### P4-C: Resolve func value callees for interprocedural analysis (future)
+- [ ] When `StaticCallee() == nil` but the func value is known to be a specific `*ssa.Function` or `MakeClosure`, trace back to the underlying function and use its summary for return nil states
+- [ ] Example: `h := makeHandler(); result := h()` — h is non-nil and points to a known function, but `transferCall` can't resolve the callee → result defaults to MaybeNil
+- [ ] Requires tracking which `*ssa.Function` a value originated from through the state map
+- [ ] Lower priority — not a major FP contributor in seed analysis
 
 ## Definition of Done
 

@@ -33,7 +33,7 @@ func NewNilAnalyzer(resolver *CHAResolver, paramStates *ParamNilStates) *NilAnal
 		resolver:       resolver,
 		paramNilStates: paramStates,
 		summaries:      make(map[*ssa.Function]NilFunctionSummary),
-		maxCallDepth:   3,
+		maxCallDepth:   10,
 	}
 }
 
@@ -492,11 +492,6 @@ func (a *NilAnalyzer) resolveCallees(v *ssa.Call) []*ssa.Function {
 func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummary {
 	if summary, ok := a.summaries[fn]; ok {
 		return summary
-	}
-
-	// Skip functions outside the target packages — return conservative MaybeNil.
-	if a.targetPkgs != nil && !a.targetPkgs[fn.Package()] {
-		return NilFunctionSummary{Returns: []NilState{MaybeNil}}
 	}
 
 	if a.callDepth >= a.maxCallDepth {
