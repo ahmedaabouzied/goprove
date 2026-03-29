@@ -75,10 +75,14 @@ The 23 true positives were genuinely valuable (discarded Stat() errors in echo/z
 ### P4 — Enhancements (discovered during P1 work)
 
 #### P4-A: Detect nil func value calls
-- [ ] In `checkInstruction` `*ssa.Call` case: if not `IsInvoke()` and callee is a func-typed SSA value (not a static function), check its nil state
-- [ ] `fn := m[key]; fn()` should warn when fn is MaybeNil
-- [ ] Applies to func parameters, map lookups, struct fields holding func values
-- [ ] Test: func value from map lookup called without nil check → Warning
+- [x] In `checkInstruction` `*ssa.Call` case: if not `IsInvoke()` and `StaticCallee() == nil` and not `*ssa.Builtin`, check nil state of `v.Call.Value`
+- [x] `fn := m[key]; fn()` warns when fn is MaybeNil
+- [x] Builtin guard: `len`, `cap`, `append`, `copy`, `delete`, `close`, `panic`, `print` not flagged
+- [x] 31 tests covering func params, map lookups, multi-return, builtins, loops, regressions
+
+#### P4-B: MakeClosure and Function references are DefinitelyNotNil
+- [x] `*ssa.MakeClosure` added to `transferInstruction` → DefinitelyNotNil (closures with captures)
+- [x] `*ssa.Function` handled in `lookupNilState` → DefinitelyNotNil (no-capture closures and function references)
 
 ## Definition of Done
 

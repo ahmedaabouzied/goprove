@@ -360,6 +360,10 @@ func (a *NilAnalyzer) lookupNilState(block *ssa.BasicBlock, v ssa.Value) NilStat
 		}
 		return DefinitelyNotNil
 	}
+	if _, ok := v.(*ssa.Function); ok {
+		// functions are always non-nil
+		return DefinitelyNotNil
+	}
 
 	if !isNillable(v) {
 		// Non-nillable values. Like int, bools, etc..
@@ -567,6 +571,8 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.state[block][v] = DefinitelyNotNil
 	case *ssa.Convert:
 		a.state[block][v] = a.lookupNilState(block, v.X)
+	case *ssa.MakeClosure:
+		a.transferMakeClosure(block, v)
 	case *ssa.Store:
 		a.transferStoreOp(block, v)
 	case *ssa.Call:
@@ -578,6 +584,41 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 	case *ssa.Lookup:
 		a.transferMapLookup(block, v)
 	}
+}
+
+func (a *NilAnalyzer) transferMakeClosure(block *ssa.BasicBlock, v *ssa.MakeClosure) {
+
+	/*
+		A MakeClosure appears when the anonymous function captures variables from its enclosing scope (free variables):
+
+		  func makeAdder(x int) func(int) int {
+		      return func(y int) int { return x + y }
+		      //                              ^ captures x
+		  }
+
+		  SSA for makeAdder:
+		  Block 0:
+		    t0 = MakeClosure makeAdder$1 [x]    → type: func(int) int
+		    Return t0
+
+		  The [x] is the captured free variable. Because there's a capture, SSA must create a closure at runtime → MakeClosure.
+
+		  Compare with your makeHandler which has no captures:
+
+		  func makeHandler() func() int {
+		      return func() int { return 42 }
+		      //                         ^ no captures
+		  }
+
+
+		  SSA:
+		  Block 0:
+		    Return makeHandler$1
+
+		  No captures → no MakeClosure → returns the *ssa.Function
+		  directly.
+	*/
+	a.state[block][v] = DefinitelyNotNil
 }
 
 func (a *NilAnalyzer) transferMapLookup(block *ssa.BasicBlock, v *ssa.Lookup) {
