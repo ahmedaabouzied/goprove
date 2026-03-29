@@ -202,7 +202,18 @@ func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 		// then v.Call.Value. We should check the nil state of
 		// v.Call.Value.
 		if v.Call.IsInvoke() {
+			// Example: x.String()
+			// SSA: t0 = Invoke x.String()
 			a.flagNilDeref(block, v.Call.Value, v.Pos(), reported)
+			break
+		} else if v.Call.StaticCallee() == nil {
+			// Func value call: fn(), where fn is a variable holding a function.
+			// StaticCallee is nil because the callee isn't known at compile time.
+			// v.Call.Value is the func-typed value being called — check its nil state.
+			if _, isBuiltin := v.Call.Value.(*ssa.Builtin); !isBuiltin {
+				// Builtins are always non nil
+				a.flagNilDeref(block, v.Call.Value, v.Pos(), reported)
+			}
 		}
 	case *ssa.UnOp:
 		// Only pointer dereference: *p

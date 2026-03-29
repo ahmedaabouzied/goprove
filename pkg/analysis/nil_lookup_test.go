@@ -143,14 +143,12 @@ func TestLookup_NonCommaOk_FuncValue_CallWithoutCheck(t *testing.T) {
 	findings := analyzer.Analyze(fn)
 
 	// func() int is nillable → MaybeNil from transferMapLookup.
-	// However, calling a nil func value (fn()) is a *ssa.Call, not a
-	// dereference (*ssa.UnOp/FieldAddr/IndexAddr). checkInstruction only
-	// checks nil on interface Invoke calls, not direct func value calls.
-	// This is a known limitation — the nil state is correct (MaybeNil),
-	// but no finding is emitted because the call isn't flagged.
-	// TODO: Add func value nil call detection to checkInstruction.
-	require.Empty(t, findings,
-		"func value call not yet detected — known limitation")
+	// Calling fn() on a MaybeNil func value → Warning.
+	require.NotEmpty(t, findings, "calling unchecked func from map lookup should warn")
+	for _, f := range findings {
+		require.Equal(t, analysis.Warning, f.Severity,
+			"unchecked func call should be Warning, not Bug")
+	}
 }
 
 func TestLookup_NonCommaOk_InterfaceValue(t *testing.T) {
