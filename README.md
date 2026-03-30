@@ -13,6 +13,7 @@
   <a href="https://github.com/ahmedaabouzied/goprove/actions/workflows/go.yml"><img src="https://img.shields.io/badge/GoProve-proven-brightgreen?logo=go" alt="GoProve"></a>
   <a href="https://github.com/ahmedaabouzied/goprove/releases"><img src="https://img.shields.io/github/v/release/ahmedaabouzied/goprove" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="https://goprove.dev"><img src="https://img.shields.io/badge/docs-goprove.dev-00add8" alt="Docs"></a>
 </p>
 
 When GoProve says a bug exists, it's guaranteed. When it says your code is safe, it's proven. When it's unsure, it tells you honestly.
