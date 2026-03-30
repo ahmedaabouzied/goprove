@@ -367,6 +367,22 @@ func (a *NilAnalyzer) lookupNilState(block *ssa.BasicBlock, v ssa.Value) NilStat
 		return DefinitelyNotNil
 	}
 
+	if _, ok := v.(*ssa.Global); ok {
+		// Globals are always non-nil.
+		// They're named variables holding addresses of
+		// package level variables.
+		// Example:
+		// Global array:
+		// var vchars = [256]byte{'"':2, '{': 3}
+		// Global value:
+		// var defaultTimeout = 30 * time.Second
+		// Global struct:
+		// var mu sync.Mutex
+		// Global pointer:
+		// var DefaultOptions *Options
+		return DefinitelyNotNil
+	}
+
 	if !isNillable(v) {
 		// Non-nillable values. Like int, bools, etc..
 		return DefinitelyNotNil
