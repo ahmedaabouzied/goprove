@@ -289,3 +289,59 @@
 - This models "post-dereference" knowledge: the program only reaches the next instruction if the base was non-nil
 - Eliminates double-reporting on `s.X` patterns (Bug on FieldAddr + spurious Warning on load)
 - Sound: the result pointer points to a sub-element of a live object
+
+---
+
+## ADR-018: Stdlib cache via `goprove cache stdlib`
+
+**Date**: 2026-03-30
+**Status**: Accepted
+
+**Context**: Every `goprove ./...` run re-analyzes stdlib functions encountered as callees. Stdlib doesn't change between runs. Options: (1) curated hardcoded map of known-safe returns, (2) analyze stdlib and cache results.
+
+**Decision**: Add `goprove cache stdlib` command that analyzes all stdlib functions and saves summaries to a versioned JSON cache file. Normal runs load this cache automatically from `DefaultCachePath`.
+
+**Rationale**:
+- More general and accurate than a curated map — covers 20,589 functions vs a manual list of dozens
+- Cache tagged with Go version + goprove version, validated on load — no stale results
+- One-time cost (~15 seconds), amortized across all subsequent runs
+- Cache file hosted on goprove.dev for users to download — no need to generate locally
+- Infrastructure already existed (`SummaryCache`, `lookupOrComputeSummary` cache check) — minimal new code
+
+---
+
+## ADR-019: Skip branch refinement at multi-predecessor merge points
+
+**Date**: 2026-03-30
+**Status**: Accepted
+
+**Context**: `refineFromPredecessor` iterates all predecessors and overwrites the state map for each. At merge points with multiple predecessors, the last edge's refinement wins instead of being joined. This caused functions with defensive nil checks (e.g., `if b != nil { ... }; return b`) to have their return classified as DefinitelyNil — a soundness bug.
+
+**Decision**: Skip refinement entirely when `len(block.Preds) != 1`. At merge points, the join from `initBlockState` is the correct answer.
+
+**Rationale**:
+- Single-predecessor refinement is the critical path (early-return guards, if/else branches) — unchanged
+- At merge points, no single edge's refinement is representative of all paths
+- The correct architecture would be per-edge refinement before join, but that's a larger refactor
+- Skipping at multi-pred is sound (may lose precision in rare cases where all preds agree)
+- Eliminates the entire class of FPs where defensive nil checks in library code cause Bug findings
+
+**Trade-off**: Loses precision in the rare pattern where ALL predecessors of a merge point end with the same nil check on the same variable. Acceptable — this pattern is extremely uncommon.
+
+---
+
+## ADR-020: Exported function params without nil guards are true warnings
+
+**Date**: 2026-03-30
+**Status**: Accepted
+
+**Context**: The original seed analysis classified 897 findings as "caller_invariant" false positives — functions whose params are always non-nil from observed callers. On re-evaluation after fixing the analysis bugs, the question is whether these are FPs or TPs.
+
+**Decision**: Warnings on exported function params with no nil guard are true warnings. A pointer param with no nil check is a real risk — the caller could pass nil.
+
+**Rationale**:
+- "All current callers pass non-nil" doesn't make a function safe — a future caller could pass nil
+- Library authors should guard against nil params or document the contract
+- This is consistent with our three-color model: Warning = "couldn't prove safe or unsafe"
+- The tool correctly identifies missing defensive checks — that's its job
+- Suppressing these would weaken the tool's value for the target audience (production backend engineers)

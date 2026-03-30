@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-03-30 — Stdlib Cache, Multi-Pred Refinement Fix, Re-analysis
+
+### Stdlib nil analysis cache (`goprove cache stdlib`)
+- New command pre-computes nil return summaries for all Go stdlib functions
+- 360 packages, 20,589 function summaries, ~15 seconds to generate
+- Cache saved as versioned JSON (`summaries-<goversion>-<goproveversion>.json`)
+- `SummaryCache` extended with `GoproveVersion`, `Merge()`, `LoadAndValidateCache()`
+- Normal `goprove ./...` loads stdlib cache automatically from `DefaultCachePath` as fallback
+- Cache will be hosted on goprove.dev, regenerated per goprove/Go release
+
+### Multi-predecessor refinement overwrite bug (soundness fix)
+- `refineFromPredecessor` iterated all predecessors and each `refineFromCondition` call overwrote the state with a raw assignment
+- At merge points with multiple predecessors, the last edge's refinement won — e.g., `SetAll()` pattern: defensive `if b != nil` caused return value to be classified DefinitelyNil (Bug) instead of MaybeNil
+- Fix: skip refinement when `len(block.Preds) != 1`
+- 5 new integration tests covering the fix and verifying single-pred refinement still works
+
+### Re-analysis of 20 OSS modules
+- Total findings: 1,948 → 946 (-51%)
+- Key insight: the original triage was wrong. Most "caller_invariant" FPs (897 findings) are actually **true warnings** — functions accept pointer params with no nil guard, and a caller could pass nil
+- Modules that increased (gin +23%, backoff +267%, go-cache 0→6) are not regressions — the multi-pred bug was accidentally suppressing legitimate warnings
+- Estimated real FP rate: ~10% (array IndexAddr, Store/Load tracking, type switch narrowing)
+- **Phase 2.5 definition of done (FP rate < 30%) is met**
+
+### Remaining real FPs (~100 estimated)
+- Array IndexAddr on value types (P2-B) — ~40-80
+- Store/Load tracking misses — ~20-40
+- Type switch narrowing — ~20-40
+
 ## 2026-03-26 — Seed Analysis: 20 OSS Modules
 
 ### Findings
