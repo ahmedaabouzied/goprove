@@ -395,6 +395,10 @@ func (a *NilAnalyzer) lookupNilState(block *ssa.BasicBlock, v ssa.Value) NilStat
 
 // Checks for if something == nil or something != nil
 func (a *NilAnalyzer) refineFromPredecessor(block *ssa.BasicBlock) {
+	if len(block.Preds) != 1 {
+		// The block has multiple predecessors. The initBlockState call captured the correct state already.
+		return
+	}
 	// Check if predecessor ends with an if
 	for _, pred := range block.Preds {
 		lastInstr := pred.Instrs[len(pred.Instrs)-1]

@@ -734,3 +734,197 @@ func TestNilAnalyze_DerefInBothBranches(t *testing.T) {
 		require.Equal(t, analysis.Warning, f.Severity)
 	}
 }
+
+// ===========================================================================
+// Multi-predecessor refinement tests
+// ===========================================================================
+// These tests verify that branch refinement does not overwrite joined state
+// at merge points with multiple predecessors.
+
+// TestNilAnalyze_DefensiveNilCheckOnParam tests the pattern where a param
+// is checked with `if p != nil` and then returned at a merge point.
+// The return value should be MaybeNil (Warning), not DefinitelyNil (Bug).
+func TestNilAnalyze_DefensiveNilCheckOnParam(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func defensive(p *int) *int {
+			if p != nil {
+				_ = *p
+			}
+			return p
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "defensive" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	// The deref inside the if is safe (single-pred refinement).
+	// No Bug findings — the merge point must not override p to DefinitelyNil.
+	for _, f := range findings {
+		require.NotEqual(t, analysis.Bug, f.Severity,
+			"defensive nil check must not produce Bug at merge point")
+	}
+}
+
+// TestNilAnalyze_DefensiveNilCheckReturnSelf tests the SetAll() pattern:
+// a method with a defensive `if b != nil` that returns the receiver.
+// The return must NOT be classified as DefinitelyNil.
+func TestNilAnalyze_DefensiveNilCheckReturnSelf(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func returnSelf(p *int) *int {
+			if p != nil {
+				_ = *p + 1
+			}
+			return p
+		}
+
+		func caller() int {
+			x := 42
+			r := returnSelf(&x)
+			return *r
+		}
+	`)
+
+	var callerFn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "caller" {
+			callerFn = f
+			break
+		}
+	}
+	require.NotNil(t, callerFn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(callerFn)
+
+	// caller passes &x (non-nil) to returnSelf which returns p.
+	// Must not be a Bug — the old code would classify p as DefinitelyNil
+	// at the merge point, making the summary [DefinitelyNil].
+	for _, f := range findings {
+		require.NotEqual(t, analysis.Bug, f.Severity,
+			"calling function that defensively checks receiver must not be Bug")
+	}
+}
+
+// TestNilAnalyze_MultiPredMergeNoFalseNil tests a merge block with 3
+// predecessors (if/else + fallthrough). The merged state must be a
+// proper join, not the refinement from one edge.
+func TestNilAnalyze_MultiPredMergeNoFalseNil(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func multiMerge(p *int, cond bool) *int {
+			if p != nil {
+				if cond {
+					_ = *p
+				}
+			}
+			return p
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "multiMerge" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+
+	// Return block has multiple predecessors. The old code would
+	// overwrite p to DefinitelyNil from the false edge of `if p != nil`.
+	for _, f := range findings {
+		require.NotEqual(t, analysis.Bug, f.Severity,
+			"multi-predecessor merge must not produce Bug from single-edge refinement")
+	}
+}
+
+// TestNilAnalyze_SinglePredRefinementStillWorks verifies that the fix
+// did not break single-predecessor refinement — the early-return guard
+// pattern must still prove the deref safe.
+func TestNilAnalyze_SinglePredRefinementStillWorks(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func earlyReturn(p *int) int {
+			if p == nil {
+				return 0
+			}
+			return *p
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "earlyReturn" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings,
+		"single-predecessor refinement must still prove deref safe after early return")
+}
+
+// TestNilAnalyze_SinglePredNeqRefinementStillWorks verifies the if p != nil
+// pattern with a single predecessor still refines correctly.
+func TestNilAnalyze_SinglePredNeqRefinementStillWorks(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func guardedDeref(p *int) int {
+			if p != nil {
+				return *p
+			}
+			return 0
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "guardedDeref" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings,
+		"guarded deref in true branch of p != nil must be safe")
+}
