@@ -30,6 +30,17 @@ func main() {
 		return
 	}
 
+	if len(args) > 0 && args[0] == "cache" {
+		if len(args) < 2 {
+			printErrAndOsExit("usage: goprove cache stdlib [-o path]")
+		}
+		if args[1] == "stdlib" {
+			runCacheStdlib(args[2:])
+			return
+		}
+		printErrAndOsExit("unknown cache subcommand: " + args[1])
+	}
+
 	validateArgs(args)
 
 	targetPackage := args[0]
@@ -63,8 +74,10 @@ func printHelp() {
 	fmt.Fprintln(w, "goprove: A code prover for Golang.")
 	fmt.Fprintln(w, "\t Usage: goprove <target_package>")
 	fmt.Fprintln(w, "\t Commands:")
-	fmt.Fprintln(w, "\t \t version : Prints version information.")
-	fmt.Fprintln(w, "\t \t upgrade : Upgrades goprove to the latest version.")
+	fmt.Fprintln(w, "\t \t version       : Prints version information.")
+	fmt.Fprintln(w, "\t \t upgrade       : Upgrades goprove to the latest version.")
+	fmt.Fprintln(w, "\t \t cache stdlib  : Pre-compute nil analysis cache for Go standard library.")
+	fmt.Fprintln(w, "\t \t                 -o <path> : Output path (default: ~/.cache/goprove/summaries-<versions>.json)")
 	fmt.Fprintln(w, "\t Example: goprove fmt")
 	fmt.Fprintln(w, "\t Flags:")
 	fmt.Fprintln(w, "\t \t -i : Show progress during analysis.")

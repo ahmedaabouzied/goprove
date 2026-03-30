@@ -10,6 +10,7 @@ import (
 
 	"github.com/ahmedaabouzied/goprove/pkg/analysis"
 	"github.com/ahmedaabouzied/goprove/pkg/loader"
+	"github.com/ahmedaabouzied/goprove/pkg/version"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -38,8 +39,21 @@ func NewProver(path string, progress *Progress) (*Prover, error) {
 	done()
 
 	analyzer := analysis.NewAnalyzer(resolver)
-	cache, err := analysis.LoadSummaryCache(".goprove/cache.json")
 	analyzer.SetTargetPackages(pkgs)
+
+	// Load nil analysis cache: project-local first, then
+	// global stdlib cache as fallback.
+	cache, _ := analysis.LoadSummaryCache(".goprove/cache.json")
+	if stdlibPath, pathErr := analysis.DefaultCachePath(version.Version); pathErr == nil {
+		if stdlibCache, loadErr := analysis.LoadAndValidateCache(stdlibPath, version.Version); loadErr == nil {
+			if cache == nil {
+				cache = stdlibCache
+			} else {
+				cache.Merge(stdlibCache)
+			}
+		}
+	}
+
 	nilAnalyzer := analysis.NewNilAnalyzer(resolver, nil, cache)
 	nilAnalyzer.SetTargetPackages(pkgs)
 

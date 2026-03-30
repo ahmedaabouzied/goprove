@@ -17,8 +17,9 @@ import (
 // and dependencies
 // is only done once per Go version.
 type SummaryCache struct {
-	GoVersion string                `json:"go_version"`
-	Summaries map[string][]NilState `json:"summaries"`
+	GoVersion      string                `json:"go_version"`
+	GoproveVersion string                `json:"goprove_version,omitempty"`
+	Summaries      map[string][]NilState `json:"summaries"`
 }
 
 // NewSummaryCache creates an empty cache tagged with
@@ -27,6 +28,22 @@ func NewSummaryCache() *SummaryCache {
 	return &SummaryCache{
 		GoVersion: runtime.Version(),
 		Summaries: make(map[string][]NilState),
+	}
+}
+
+// SetGoproveVersion tags the cache with the goprove version
+// that generated it.
+func (c *SummaryCache) SetGoproveVersion(v string) {
+	c.GoproveVersion = v
+}
+
+// Merge copies entries from other into c. Existing entries
+// in c are not overwritten.
+func (c *SummaryCache) Merge(other *SummaryCache) {
+	for k, v := range other.Summaries {
+		if _, exists := c.Summaries[k]; !exists {
+			c.Summaries[k] = v
+		}
 	}
 }
 
@@ -102,14 +119,41 @@ func LoadSummaryCache(path string) (*SummaryCache, error) {
 	return &cache, nil
 }
 
+// LoadAndValidateCache reads a cache from disk and
+// validates both Go version and goprove version.
+// The goprove version check is skipped when either
+// the cached or running version is empty (backward
+// compatibility with caches that predate versioning).
+func LoadAndValidateCache(path, goproveVersion string) (*SummaryCache, error) {
+	cache, err := LoadSummaryCache(path)
+	if err != nil {
+		return nil, err
+	}
+	if cache.GoproveVersion != "" && goproveVersion != "" &&
+		cache.GoproveVersion != goproveVersion {
+		return nil, fmt.Errorf(
+			"cache goprove version mismatch: cached %s, running %s",
+			cache.GoproveVersion, goproveVersion,
+		)
+	}
+	return cache, nil
+}
+
 // DefaultCachePath returns the default location for
 // the summary cache file:
-// ~/.cache/goprove/summaries-<goversion>.json
-func DefaultCachePath() (string, error) {
+// ~/.cache/goprove/summaries-<goversion>-<goproveversion>.json
+// When goproveVersion is empty, only the Go version is
+// included in the filename.
+func DefaultCachePath(goproveVersion string) (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return "", fmt.Errorf("getting user cache directory: %w", err)
 	}
-	filename := fmt.Sprintf("summaries-%s.json", runtime.Version())
+	var filename string
+	if goproveVersion != "" {
+		filename = fmt.Sprintf("summaries-%s-%s.json", runtime.Version(), goproveVersion)
+	} else {
+		filename = fmt.Sprintf("summaries-%s.json", runtime.Version())
+	}
 	return filepath.Join(cacheDir, "goprove", filename), nil
 }

@@ -522,6 +522,14 @@ func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummar
 	return summary
 }
 
+// SummarizeFunction analyzes fn and returns its nil
+// return states. Used by cache generation to extract
+// summaries for individual functions.
+func (a *NilAnalyzer) SummarizeFunction(fn *ssa.Function) []NilState {
+	a.Analyze(fn)
+	return a.computeReturnNilStates(fn)
+}
+
 func (a *NilAnalyzer) computeReturnNilStates(fn *ssa.Function) []NilState {
 	var returns []NilState
 	for _, block := range fn.Blocks {
