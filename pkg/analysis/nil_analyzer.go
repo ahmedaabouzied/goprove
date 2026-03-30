@@ -13,6 +13,7 @@ import (
 type NilAnalyzer struct {
 	state           map[*ssa.BasicBlock]map[ssa.Value]NilState
 	summaries       map[*ssa.Function]NilFunctionSummary
+	summaryCache    *SummaryCache
 	callDepth       int
 	maxCallDepth    int
 	resolver        *CHAResolver
@@ -28,11 +29,12 @@ type NilFunctionSummary struct {
 	Returns []NilState
 }
 
-func NewNilAnalyzer(resolver *CHAResolver, paramStates *ParamNilStates) *NilAnalyzer {
+func NewNilAnalyzer(resolver *CHAResolver, paramStates *ParamNilStates, cache *SummaryCache) *NilAnalyzer {
 	return &NilAnalyzer{
 		resolver:       resolver,
 		paramNilStates: paramStates,
 		summaries:      make(map[*ssa.Function]NilFunctionSummary),
+		summaryCache:   cache,
 		maxCallDepth:   10,
 	}
 }
@@ -493,6 +495,12 @@ func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummar
 	if summary, ok := a.summaries[fn]; ok {
 		return summary
 	}
+	if a.summaryCache != nil {
+		if summary, ok := a.summaryCache.Get(fn.RelString(nil)); ok {
+			a.summaries[fn] = summary
+			return summary
+		}
+	}
 
 	if a.callDepth >= a.maxCallDepth {
 		return NilFunctionSummary{Returns: []NilState{MaybeNil}}
@@ -501,7 +509,7 @@ func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummar
 	// Cache a conservative sentinel before analyzing to break recursive calls.
 	a.summaries[fn] = NilFunctionSummary{Returns: []NilState{MaybeNil}}
 
-	childNilAnalyzer := NewNilAnalyzer(a.resolver, a.paramNilStates)
+	childNilAnalyzer := NewNilAnalyzer(a.resolver, a.paramNilStates, a.summaryCache)
 	childNilAnalyzer.callDepth = a.callDepth + 1
 	childNilAnalyzer.summaries = a.summaries
 	childNilAnalyzer.targetPkgs = a.targetPkgs

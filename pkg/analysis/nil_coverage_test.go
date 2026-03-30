@@ -30,7 +30,7 @@ func TestCoverage_SliceIndexAddrDefinitelyNil(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	// Slice IndexAddr on DefinitelyNil should be a Bug.
 	hasBug := false
 	for _, f := range findings {
@@ -51,7 +51,7 @@ func TestCoverage_NonSliceIndexAddr(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	// p is MaybeNil param → should produce Warning on IndexAddr.
 	require.NotEmpty(t, findings)
 	require.Equal(t, analysis.Warning, findings[0].Severity)
@@ -74,7 +74,7 @@ func TestCoverage_NilValueNameAllocWithComment(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings)
 }
 
@@ -90,7 +90,7 @@ func TestCoverage_ResolveCalleesWithResolver(t *testing.T) {
 	require.NotEmpty(t, pkgs)
 
 	resolver := analysis.NewCHAResolver(prog)
-	analyzer := analysis.NewNilAnalyzer(resolver, nil)
+	analyzer := analysis.NewNilAnalyzer(resolver, nil, nil)
 
 	// Analyze a function that makes calls — exercises resolver path.
 	var fn *ssa.Function
@@ -130,7 +130,7 @@ func TestCoverage_MaxCallDepthExceeded(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	// Should not panic. Depth cap returns MaybeNil.
 	findings := analyzer.Analyze(fn)
 	_ = findings
@@ -171,7 +171,7 @@ func TestCoverage_ReceiverInitWithExistingState(t *testing.T) {
 	}
 
 	// Create param states that include this method's function.
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(method)
 	_ = findings // Just exercise the path, no assertion needed.
 }
@@ -198,7 +198,7 @@ func TestCoverage_InitBlockStateAddrJoin(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 	_ = findings
 }
@@ -286,7 +286,7 @@ func TestCoverage_NilStatesEqualDifferentLengths(t *testing.T) {
 		}
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)
@@ -308,7 +308,7 @@ func TestCoverage_ParamAnalysisConverges(t *testing.T) {
 		func caller() int { return helper(new(int)) }
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)
@@ -337,7 +337,7 @@ func TestCoverage_ParamAnalysisFallbackClassifyArg(t *testing.T) {
 		func caller() int { return helper(new(int)) }
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)
@@ -392,7 +392,7 @@ func TestCoverage_AnalyzeExternalFunction(t *testing.T) {
 	require.NoError(t, err)
 
 	// Find any function with nil Blocks (external/assembly).
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	for _, member := range pkgs[0].Members {
 		fn, ok := member.(*ssa.Function)
 		if !ok {
@@ -428,7 +428,7 @@ func TestCoverage_TransferStoreOp(t *testing.T) {
 		t.Skip("AddrFieldReloadMultiple not found")
 	}
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 	_ = findings
 }

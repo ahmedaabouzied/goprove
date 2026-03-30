@@ -279,7 +279,7 @@ func TestParamNilStatesAnalysis_NilGuardPropagation(t *testing.T) {
 		}
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)
@@ -313,7 +313,7 @@ func TestParamNilStatesAnalysis_WithParamStates(t *testing.T) {
 		}
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)
@@ -330,7 +330,7 @@ func TestParamNilStatesAnalysis_NilPackageSkipped(t *testing.T) {
 	t.Parallel()
 
 	// Should not panic on nil packages.
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{nil, nil}, analyzer,
 	)
@@ -344,7 +344,7 @@ func TestParamNilStatesAnalysis_EmptyPackage(t *testing.T) {
 		package example
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)
@@ -372,7 +372,7 @@ func TestParamNilStatesAnalysis_RecursiveFunction(t *testing.T) {
 	`)
 
 	// Should not stack overflow or hang.
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)

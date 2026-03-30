@@ -36,7 +36,7 @@ func TestFuncValue_ParamCallWithoutCheck_Warns(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "apply")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// fn is a func parameter — MaybeNil. Calling without nil check → Warning.
@@ -62,7 +62,7 @@ func TestFuncValue_ParamCallWithNilCheck_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "applyIfNotNil")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// fn is nil-checked before call → safe.
@@ -85,7 +85,7 @@ func TestFuncValue_ParamCallWithEarlyReturn_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "applyGuarded")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Early return on nil → fn is DefinitelyNotNil in continuation.
@@ -110,7 +110,7 @@ func TestFuncValue_MapLookup_CallWithoutCheck_Warns(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "dispatch")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// h is MaybeNil from map lookup. Call without check → Warning.
@@ -136,7 +136,7 @@ func TestFuncValue_MapLookup_WithNilCheck_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "dispatchSafe")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -159,7 +159,7 @@ func TestFuncValue_MapLookup_CommaOk_WithOkCheck_Warns(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "dispatchOk")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// ok == true means key exists, but the value could be nil func.
@@ -187,7 +187,7 @@ func TestFuncValue_MapLookup_CommaOk_WithNilCheck_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "dispatchSafeOk")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -218,7 +218,7 @@ func TestFuncValue_MultiReturn_WithoutCheck_Warns(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useHandler")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// getHandler returns (nil, nil) on one path → h is MaybeNil.
@@ -253,7 +253,7 @@ func TestFuncValue_MultiReturn_WithNilCheck_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useHandlerSafe")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -281,7 +281,7 @@ func TestFuncValue_AlwaysNonNil_FromCallee(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useAlwaysNonNil")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// makeHandler returns a closure via MakeClosure → DefinitelyNotNil.
@@ -307,7 +307,7 @@ func TestFuncValue_DefinitelyNil_Bug(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "callNilFunc")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// var fn func() int → fn is nil. Calling it → Bug.
@@ -340,7 +340,7 @@ func TestFuncValue_MultipleCalls_MixedStates(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "callTwo")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// a is nil-checked → safe. b is not checked → Warning.
@@ -371,7 +371,7 @@ func TestFuncValue_BothChecked_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "callBoth")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -401,7 +401,7 @@ func TestFuncValue_InLoop_WithNilCheck_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "runAll")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -425,7 +425,7 @@ func TestFuncValue_InLoop_WithoutCheck_Warns(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "runAllUnsafe")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// fn from slice index is MaybeNil. Call without check → Warning.
@@ -452,7 +452,7 @@ func TestFuncValue_Builtin_Len_NotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useLen")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -471,7 +471,7 @@ func TestFuncValue_Builtin_Cap_NotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useCap")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -490,7 +490,7 @@ func TestFuncValue_Builtin_Append_NotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useAppend")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -509,7 +509,7 @@ func TestFuncValue_Builtin_Copy_NotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useCopy")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -528,7 +528,7 @@ func TestFuncValue_Builtin_Delete_NotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useDelete")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -547,7 +547,7 @@ func TestFuncValue_Builtin_Close_NotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useClose")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -566,7 +566,7 @@ func TestFuncValue_Builtin_Panic_NotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "usePanic")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -586,7 +586,7 @@ func TestFuncValue_Builtin_Print_NotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "usePrint")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -613,7 +613,7 @@ func TestFuncValue_BuiltinAndFuncValue_Mixed(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "mixed")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// len(s) is a builtin — must not be flagged.
@@ -649,7 +649,7 @@ func TestFuncValue_Regression_NilCheckPointer(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "guarded")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings, "pointer nil check must still work")
@@ -676,7 +676,7 @@ func TestFuncValue_Regression_ExtractStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useExtract")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings, "Extract must still work")
@@ -695,7 +695,7 @@ func TestFuncValue_Regression_TypeAssertStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castDeref")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings, "TypeAssert non-CommaOk must still work")
@@ -716,7 +716,7 @@ func TestFuncValue_Regression_AlwaysNilCallStillBug(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "derefNil")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.NotEmpty(t, findings, "always-nil deref must still be caught")
@@ -743,7 +743,7 @@ func TestFuncValue_Regression_StaticCallNotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useHelper")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Static call — StaticCallee() is non-nil. Must not be flagged.
@@ -770,7 +770,7 @@ func TestFuncValue_Regression_LoopWithLenStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "walkSlice")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// len() is a builtin — must not be flagged.

@@ -43,7 +43,7 @@ func TestClosure_NoCaptureReturn_NonNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// No captures → SSA returns *ssa.Function directly.
@@ -74,7 +74,7 @@ func TestClosure_NoCaptureReturn_DerefResult(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// getter is non-nil (no-capture closure) — MakeClosure/Function fix works.
@@ -104,7 +104,7 @@ func TestClosure_NoCaptureAssignment_CallSafe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// fn = double → *ssa.Function reference. Always non-nil.
@@ -133,7 +133,7 @@ func TestClosure_NoCapturePassedAsArg(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// double is *ssa.Function → non-nil. apply checks fn != nil → safe.
@@ -162,7 +162,7 @@ func TestClosure_WithCapture_ReturnNonNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Captures x → MakeClosure emitted → DefinitelyNotNil.
@@ -188,7 +188,7 @@ func TestClosure_WithCapture_MultipleCaptures(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Captures prefix and suffix → MakeClosure → DefinitelyNotNil.
@@ -218,7 +218,7 @@ func TestClosure_WithCapture_DerefResult(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// counter is non-nil (MakeClosure) — correctly tracked.
@@ -255,7 +255,7 @@ func TestClosure_MultiReturn_NoCaptureNonNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// getHandler always returns (non-nil closure, nil).
@@ -284,7 +284,7 @@ func TestClosure_MultiReturn_WithCaptureNonNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Captures x → MakeClosure → DefinitelyNotNil in summary.
@@ -312,7 +312,7 @@ func TestClosure_MultiReturn_MaybeClosure(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useUnsafe")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// maybeHandler returns nil on one path → MaybeNil.
@@ -347,7 +347,7 @@ func TestClosure_MultiReturn_MaybeClosureWithCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useSafe")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// h is nil-checked before call → safe.
@@ -379,7 +379,7 @@ func TestClosure_StoredInVar_NilCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -403,7 +403,7 @@ func TestClosure_TruePositive_NilVar(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "callNil")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.NotEmpty(t, findings, "calling nil func var must be flagged")
@@ -428,7 +428,7 @@ func TestClosure_TruePositive_ParamUnchecked(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "apply")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// fn is a param → MaybeNil. Call without check → Warning.
@@ -458,7 +458,7 @@ func TestClosure_Regression_PointerNilCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "guarded")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings, "pointer nil check must still work")
@@ -485,7 +485,7 @@ func TestClosure_Regression_ExtractStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings, "Extract must still work")
@@ -505,7 +505,7 @@ func TestClosure_Regression_BuiltinNotFlagged(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useBuiltins")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings, "builtins must not be flagged")
@@ -525,7 +525,7 @@ func TestClosure_Regression_AlwaysNilDeref(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "deref")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.NotEmpty(t, findings, "always-nil deref must still be caught")

@@ -49,7 +49,7 @@ func TestExtract_TwoReturn_NonNilFirstReturn(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useNewInt")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// newInt always returns (&v, nil).
@@ -78,7 +78,7 @@ func TestExtract_TwoReturn_AlwaysNilFirstReturn(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useAlwaysFails")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// alwaysFails always returns (nil, err).
@@ -114,7 +114,7 @@ func TestExtract_TwoReturn_MaybeNilFirstReturn(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useMaybeParse")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// maybeParse returns (nil, nil) or (&x, nil).
@@ -151,7 +151,7 @@ func TestExtract_TwoReturn_MaybeNilWithNilCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useSafely")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// MaybeNil return + nil check before use → safe.
@@ -185,7 +185,7 @@ func TestExtract_ThreeReturn_AllPositions(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useCompute")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// compute returns (&a, &b, nil) — all three returns known.
@@ -223,7 +223,7 @@ func TestExtract_ThreeReturn_MixedNilStates(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useConnect")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// connect returns (&a, nil, nil) or (nil, nil, err).
@@ -258,7 +258,7 @@ func TestExtract_ThreeReturn_DerefMixedStates(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useUnsafely")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// connect: Returns[0] = MaybeNil, Returns[1] = MaybeNil.
@@ -292,7 +292,7 @@ func TestExtract_SingleReturn_NoExtract(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useSingle")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Single-return uses direct Call value, not Extract.
@@ -320,7 +320,7 @@ func TestExtract_TypeAssertCommaOk_FallsBackToMaybeNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "stringify")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// TypeAssert with CommaOk produces a tuple.
@@ -345,7 +345,7 @@ func TestExtract_MapLookupCommaOk_FallsBackToMaybeNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "lookup")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Lookup with CommaOk produces a tuple, not a Call.
@@ -378,7 +378,7 @@ func TestExtract_IndirectCall_NilCallee(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "doCall")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Indirect call via function pointer — StaticCallee() is nil.
@@ -419,7 +419,7 @@ func TestExtract_StdlibMultiReturn_OsOpen(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "readFile")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// os.Open returns (*File, error).
@@ -450,7 +450,7 @@ func TestExtract_StdlibMultiReturn_FmtSscanf(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "parseNum")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// fmt.Sscanf returns (int, error) — int is non-nillable.
@@ -491,7 +491,7 @@ func TestExtract_SamePackageCallee_TwoReturns(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "setup")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// openDB returns MaybeNil for both positions.
@@ -530,7 +530,7 @@ func TestExtract_SamePackageCallee_ChainedMultiReturn(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "pipeline")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Both step1 and step2 always return non-nil first values.
@@ -567,7 +567,7 @@ func TestExtract_CalleePanics_NoReturnValues(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// mustParse has one return path: (&x, nil). The panic path has no Return.
@@ -606,7 +606,7 @@ func TestExtract_RecursiveCallee(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useRecursive")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Recursive callee — sentinel summary (MaybeNil) breaks the cycle.
@@ -644,7 +644,7 @@ func TestExtract_MultipleCallSitesSameFunction(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useMultiple")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Same function called twice. Each Extract gets the same summary.
@@ -674,7 +674,7 @@ func TestExtract_Regression_SingleReturnCallStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "derefNil")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Single return — handled by transferCall, not transferExtractInstr.
@@ -707,7 +707,7 @@ func TestExtract_Regression_NonNilSingleReturn(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useNewInt")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -729,7 +729,7 @@ func TestExtract_Regression_BranchRefinementStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "guarded")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -750,7 +750,7 @@ func TestExtract_Regression_AllocNonNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useAlloc")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -775,7 +775,7 @@ func TestExtract_Regression_MethodReceiverNonNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "guarded")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -811,7 +811,7 @@ func TestExtract_WithParamAnalysis_CallerPassesNonNil(t *testing.T) {
 		}
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)

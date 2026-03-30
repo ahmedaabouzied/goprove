@@ -110,7 +110,7 @@ func TestNilAnalyze_EarlyReturnGuard(t *testing.T) {
 			ssaPkg := buildSSA(t, tt.src)
 			fn := findSSAFunc(t, ssaPkg, tt.fnName)
 
-			analyzer := analysis.NewNilAnalyzer(nil, nil)
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 			findings := analyzer.Analyze(fn)
 			require.Len(t, findings, tt.wantLen, "findings mismatch")
 		})
@@ -227,7 +227,7 @@ func TestNilAnalyze_InterproceduralReturns(t *testing.T) {
 			ssaPkg := buildSSA(t, tt.src)
 			fn := findSSAFunc(t, ssaPkg, tt.fnName)
 
-			analyzer := analysis.NewNilAnalyzer(nil, nil)
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 			findings := analyzer.Analyze(fn)
 			require.Len(t, findings, tt.wantLen, "findings mismatch")
 		})
@@ -264,7 +264,7 @@ func TestNilAnalyze_MethodReceiver(t *testing.T) {
 	require.NotEmpty(t, methods, "should find some methods in testdata")
 
 	// All methods should have no nil findings on the receiver.
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	for _, fn := range methods {
 		t.Run(fn.String(), func(t *testing.T) {
 			findings := analyzer.Analyze(fn)
@@ -335,7 +335,7 @@ func TestNilAnalyze_Dedup(t *testing.T) {
 			ssaPkg := buildSSA(t, tt.src)
 			fn := findSSAFunc(t, ssaPkg, tt.fnName)
 
-			analyzer := analysis.NewNilAnalyzer(nil, nil)
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 			findings := analyzer.Analyze(fn)
 			require.Len(t, findings, tt.wantLen, "dedup mismatch")
 		})
@@ -360,7 +360,7 @@ func TestNilAnalyze_MessageFormat(t *testing.T) {
 		`)
 		fn := findSSAFunc(t, ssaPkg, "withName")
 
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		require.Len(t, findings, 1)
 		require.Contains(t, findings[0].Message, "config")
@@ -379,7 +379,7 @@ func TestNilAnalyze_MessageFormat(t *testing.T) {
 		`)
 		fn := findSSAFunc(t, ssaPkg, "nilLit")
 
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		require.Len(t, findings, 1)
 		require.Contains(t, findings[0].Message, "nil pointer")
@@ -402,7 +402,7 @@ func TestNilAnalyze_MessageFormat(t *testing.T) {
 		`)
 		fn := findSSAFunc(t, ssaPkg, "callResult")
 
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		require.Len(t, findings, 1)
 		require.Contains(t, findings[0].Message, "result of getPtr()")
@@ -436,7 +436,7 @@ func TestNilAnalyze_Recursive(t *testing.T) {
 		fn := findSSAFunc(t, ssaPkg, "useRecurse")
 
 		// Should not panic or stack overflow.
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		// Result depends on depth cap — may be 0 or 1 findings.
 		_ = findings
@@ -466,7 +466,7 @@ func TestNilAnalyze_Recursive(t *testing.T) {
 		fn := findSSAFunc(t, ssaPkg, "usePing")
 
 		// Should not panic or stack overflow.
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		_ = findings
 	})
@@ -529,7 +529,7 @@ func TestNilAnalyze_SlicePatterns(t *testing.T) {
 			ssaPkg := buildSSA(t, tt.src)
 			fn := findSSAFunc(t, ssaPkg, tt.fnName)
 
-			analyzer := analysis.NewNilAnalyzer(nil, nil)
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 			findings := analyzer.Analyze(fn)
 			require.Len(t, findings, tt.wantLen)
 		})
@@ -580,7 +580,7 @@ func TestNilAnalyze_MapPatterns(t *testing.T) {
 			ssaPkg := buildSSA(t, tt.src)
 			fn := findSSAFunc(t, ssaPkg, tt.fnName)
 
-			analyzer := analysis.NewNilAnalyzer(nil, nil)
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 			findings := analyzer.Analyze(fn)
 			require.Len(t, findings, tt.wantLen)
 		})
@@ -604,7 +604,7 @@ func TestNilAnalyze_ChanPatterns(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "makeChanUse")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 	require.Empty(t, findings)
 }
@@ -661,7 +661,7 @@ func TestNilAnalyze_NonPointerOps(t *testing.T) {
 			ssaPkg := buildSSA(t, tt.src)
 			fn := findSSAFunc(t, ssaPkg, tt.fnName)
 
-			analyzer := analysis.NewNilAnalyzer(nil, nil)
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 			findings := analyzer.Analyze(fn)
 			require.Empty(t, findings)
 		})
@@ -739,7 +739,7 @@ func TestNilAnalyze_LoopPatterns(t *testing.T) {
 			ssaPkg := buildSSA(t, tt.src)
 			fn := findSSAFunc(t, ssaPkg, tt.fnName)
 
-			analyzer := analysis.NewNilAnalyzer(nil, nil)
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 			findings := analyzer.Analyze(fn)
 			require.Len(t, findings, tt.wantLen)
 		})
@@ -764,7 +764,7 @@ func TestNilAnalyze_SeverityClassification(t *testing.T) {
 		`)
 		fn := findSSAFunc(t, ssaPkg, "definiteNil")
 
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		require.Len(t, findings, 1)
 		require.Equal(t, analysis.Bug, findings[0].Severity)
@@ -780,7 +780,7 @@ func TestNilAnalyze_SeverityClassification(t *testing.T) {
 		`)
 		fn := findSSAFunc(t, ssaPkg, "maybeNil")
 
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		require.Len(t, findings, 1)
 		require.Equal(t, analysis.Warning, findings[0].Severity)
@@ -797,7 +797,7 @@ func TestNilAnalyze_SeverityClassification(t *testing.T) {
 		`)
 		fn := findSSAFunc(t, ssaPkg, "notNil")
 
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		require.Empty(t, findings)
 	})
@@ -823,7 +823,7 @@ func TestNilAnalyze_Reuse(t *testing.T) {
 		}
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 
 	// First call — safe function.
 	fn1 := findSSAFunc(t, ssaPkg, "safe")
@@ -866,7 +866,7 @@ func TestNilAnalyze_KnownLimitations(t *testing.T) {
 		`)
 		fn := findSSAFunc(t, ssaPkg, "storeLoad")
 
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		// p is &x which is Alloc → DefinitelyNotNil.
 		// *p dereferences p, which IS tracked. Should be 0 findings.
@@ -890,7 +890,7 @@ func TestNilAnalyze_KnownLimitations(t *testing.T) {
 		}
 		require.NotNil(t, fn)
 
-		analyzer := analysis.NewNilAnalyzer(nil, nil)
+		analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 		findings := analyzer.Analyze(fn)
 		// FIXED: interface invoke is now checked via IsInvoke().
 		require.Len(t, findings, 1,

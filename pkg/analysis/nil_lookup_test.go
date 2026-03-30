@@ -41,7 +41,7 @@ func TestLookup_NonCommaOk_PointerValue_DerefWithoutCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getPtr")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// m[key] returns *int which is nillable → MaybeNil.
@@ -69,7 +69,7 @@ func TestLookup_NonCommaOk_PointerValue_WithNilCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getPtrSafe")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// m[key] → MaybeNil, but nil check refines to DefinitelyNotNil in branch.
@@ -93,7 +93,7 @@ func TestLookup_NonCommaOk_SliceValue(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getSlice")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// []int is nillable → MaybeNil. But len guard protects access.
@@ -116,7 +116,7 @@ func TestLookup_NonCommaOk_MapValue(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getNestedMap")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// inner is map type → nillable → MaybeNil.
@@ -139,7 +139,7 @@ func TestLookup_NonCommaOk_FuncValue_CallWithoutCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getFunc")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// func() int is nillable → MaybeNil from transferMapLookup.
@@ -164,7 +164,7 @@ func TestLookup_NonCommaOk_InterfaceValue(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getIface")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// interface{} is nillable → MaybeNil. But v is only returned, not deref'd.
@@ -185,7 +185,7 @@ func TestLookup_NonCommaOk_ChanValue(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getChan")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// chan is nillable → MaybeNil. But ch is only returned, not used.
@@ -209,7 +209,7 @@ func TestLookup_NonCommaOk_IntValue(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getInt")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// int is non-nillable → DefinitelyNotNil. No deref possible.
@@ -229,7 +229,7 @@ func TestLookup_NonCommaOk_StringValue(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getString")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -248,7 +248,7 @@ func TestLookup_NonCommaOk_BoolValue(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getBool")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -269,7 +269,7 @@ func TestLookup_NonCommaOk_StructValue(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "getStruct")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Struct value type — non-nillable.
@@ -297,7 +297,7 @@ func TestLookup_CommaOk_PointerValue_WithOkAndNilCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "safeLookup")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CommaOk + ok check + nil check → safe.
@@ -321,7 +321,7 @@ func TestLookup_CommaOk_PointerValue_WithOnlyNilCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "nilCheckOnly")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Nil check alone is sufficient to guard the deref.
@@ -342,7 +342,7 @@ func TestLookup_CommaOk_PointerValue_DerefWithoutCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "unsafeLookup")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CommaOk but no nil check on v → Warning.
@@ -369,7 +369,7 @@ func TestLookup_CommaOk_IntValue_WithOkCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "lookupInt")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// int is non-nillable. No deref possible regardless of ok check.
@@ -393,7 +393,7 @@ func TestLookup_CommaOk_EarlyReturnGuard(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "lookupWithGuard")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// !ok || v == nil → early return. After guard, v is non-nil.
@@ -418,7 +418,7 @@ func TestLookup_NilMap_NonCommaOk(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "lookupNilMap")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Lookup on nil map returns zero value. int is non-nillable.
@@ -444,7 +444,7 @@ func TestLookup_NilMap_CommaOk(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "lookupNilMapCommaOk")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Lookup on nil map: ok is false, v is zero value. No panic.
@@ -473,7 +473,7 @@ func TestLookup_MultipleLookups_DifferentMaps(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "multiLookup")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Both lookups are MaybeNil, both nil-checked before deref.
@@ -497,7 +497,7 @@ func TestLookup_LookupThenCallMethod(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "lookupAndUse")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Nil check via == nil early return.
@@ -524,7 +524,7 @@ func TestLookup_LookupInLoop(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "lookupAll")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Lookup in loop with nil check per iteration.
@@ -548,7 +548,7 @@ func TestLookup_TruePositive_DerefWithoutAnyCheck(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "unsafeGet")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// m["key"] is MaybeNil (pointer value), deref without check → Warning.
@@ -578,7 +578,7 @@ func TestLookup_Regression_NilCheckStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "guarded")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings, "basic nil check must still work")
@@ -605,7 +605,7 @@ func TestLookup_Regression_ExtractStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useExtract")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings, "Extract from multi-return must still work")
@@ -624,7 +624,7 @@ func TestLookup_Regression_TypeAssertStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "assertDeref")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -646,7 +646,7 @@ func TestLookup_Regression_AlwaysNilCallStillBug(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "derefNil")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.NotEmpty(t, findings, "always-nil deref must still be caught")
@@ -672,7 +672,7 @@ func TestLookup_Regression_AllocStillNonNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useNew")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings, "new() must still produce DefinitelyNotNil")

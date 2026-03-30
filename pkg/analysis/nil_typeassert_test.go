@@ -41,7 +41,7 @@ func TestTypeAssert_NonCommaOk_PointerType(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castAndDeref")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// x.(*int) panics if x is not *int. If we continue, p is DefinitelyNotNil.
@@ -63,7 +63,7 @@ func TestTypeAssert_NonCommaOk_SliceType(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castToSlice")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// x.([]int) panics if assertion fails.
@@ -89,7 +89,7 @@ func TestTypeAssert_NonCommaOk_MapType(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castToMap")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// x.(map[string]int) panics on failure. Map operations on nil
@@ -111,7 +111,7 @@ func TestTypeAssert_NonCommaOk_FuncType(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castToFunc")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// x.(func() int) panics if assertion fails.
@@ -138,7 +138,7 @@ func TestTypeAssert_NonCommaOk_ChainedAssertions(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "chainedCast")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -159,7 +159,7 @@ func TestTypeAssert_NonCommaOk_MultipleAssertions(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "multiAssert")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Both assertions are non-CommaOk → both results DefinitelyNotNil.
@@ -184,7 +184,7 @@ func TestTypeAssert_CommaOk_DerefWithoutCheck_Warns(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "unsafeCast")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CommaOk: Extract #0 is MaybeNil. Deref without check → Warning.
@@ -211,7 +211,7 @@ func TestTypeAssert_CommaOk_WithOkAndNilCheck_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "safeCast")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CommaOk with ok+nil check. Branch refinement from p != nil
@@ -236,7 +236,7 @@ func TestTypeAssert_CommaOk_WithOnlyNilCheck_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castWithNilCheck")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Even without checking ok, a nil check on p is sufficient.
@@ -260,7 +260,7 @@ func TestTypeAssert_CommaOk_WithOnlyOkCheck_StillMaybeNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castWithOnlyOk")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// ok == true means the assertion succeeded, but x could have held
@@ -292,7 +292,7 @@ func TestTypeAssert_CommaOk_EarlyReturnGuard_Safe(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castWithGuard")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// !ok || p == nil → early return. In the continuation, p is non-nil
@@ -318,7 +318,7 @@ func TestTypeAssert_CommaOk_MultipleExtracts(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "twoAsserts")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Two CommaOk assertions, both nil-checked before deref.
@@ -342,7 +342,7 @@ func TestTypeAssert_NonCommaOk_ValueType_Int(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castToInt")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// int is non-nillable. The assertion result is DefinitelyNotNil
@@ -363,7 +363,7 @@ func TestTypeAssert_NonCommaOk_ValueType_String(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "castToString")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// string is a value type. No nil deref possible.
@@ -387,7 +387,7 @@ func TestTypeAssert_CommaOk_ValueType_Int(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "maybeCastInt")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// int is non-nillable — no nil deref possible regardless of ok check.
@@ -415,7 +415,7 @@ func TestTypeAssert_InIfCondition_NonCommaOk(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "assertInIf")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Non-CommaOk in a branch — still DefinitelyNotNil if we get past it.
@@ -440,7 +440,7 @@ func TestTypeAssert_InLoop_NonCommaOk(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "assertInLoop")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Non-CommaOk inside a loop body — still DefinitelyNotNil per iteration.
@@ -462,7 +462,7 @@ func TestTypeAssert_SequentialAssertions(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "sequential")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Two sequential assertions — both DefinitelyNotNil.
@@ -488,7 +488,7 @@ func TestTypeAssert_TruePositive_NilInterfaceNonCommaOk(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "assertOnNil")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// x is nil. x.(*int) will panic at runtime.
@@ -517,7 +517,7 @@ func TestTypeAssert_TruePositive_CommaOk_DerefNilResult(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "derefFailed")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CommaOk: p is MaybeNil. Deref without check → Warning.
@@ -547,7 +547,7 @@ func TestTypeAssert_Regression_NilCheckStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "guarded")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -567,7 +567,7 @@ func TestTypeAssert_Regression_AllocStillNonNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useNew")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -595,7 +595,7 @@ func TestTypeAssert_Regression_MultiReturnExtractStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useExtract")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -617,7 +617,7 @@ func TestTypeAssert_Regression_SingleReturnCallStillWorks(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "derefNil")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.NotEmpty(t, findings, "always-nil deref must still be caught")

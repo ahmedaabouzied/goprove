@@ -38,8 +38,9 @@ func NewProver(path string, progress *Progress) (*Prover, error) {
 	done()
 
 	analyzer := analysis.NewAnalyzer(resolver)
+	cache, err := analysis.LoadSummaryCache(".goprove/cache.json")
 	analyzer.SetTargetPackages(pkgs)
-	nilAnalyzer := analysis.NewNilAnalyzer(resolver, nil)
+	nilAnalyzer := analysis.NewNilAnalyzer(resolver, nil, cache)
 	nilAnalyzer.SetTargetPackages(pkgs)
 
 	done = progress.Phase("Computing parameter states")

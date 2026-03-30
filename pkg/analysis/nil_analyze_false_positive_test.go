@@ -48,7 +48,7 @@ func TestFalsePositive_MultiReturn_ErrorCheckGuaranteesNonNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useParse")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// KNOWN FALSE POSITIVE: parse() can return (nil, nil) — so when
@@ -83,7 +83,7 @@ func TestFalsePositive_DoublePtrLoadWarnsOnOuterDeref(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useDoublePtr")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// KNOWN FALSE POSITIVE: *pp dereferences pp (the outer pointer),
@@ -120,7 +120,7 @@ func TestCorrectlyHandled_TypeAssertionOkPattern(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "tryDoer")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CORRECTLY HANDLED: the analyzer produces no false positive here.
@@ -150,7 +150,7 @@ func TestCorrectlyHandled_MapLookupOkPattern(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "mapLookup")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CORRECTLY HANDLED: the v != nil check refines v in the true branch.
@@ -182,7 +182,7 @@ func TestCorrectlyHandled_StdlibNewTimer(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useTimer")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CORRECTLY HANDLED: interprocedural analysis resolves time.NewTimer
@@ -206,7 +206,7 @@ func TestCorrectlyHandled_StdlibBytesNewBuffer(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useBuffer")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CORRECTLY HANDLED: bytes.NewBuffer always returns non-nil.
@@ -230,7 +230,7 @@ func TestCorrectlyHandled_StringIndexNotNil(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "charAt")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CORRECTLY HANDLED: strings are value types in Go — cannot be nil.
@@ -256,7 +256,7 @@ func TestFalsePositive_UnsafePointerConversion(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "unsafeConvert")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// FIXED: *ssa.Convert now propagates source nil state.
@@ -303,7 +303,7 @@ func TestCorrectlyHandled_NestedNilCheckSequential(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "nestedCheck")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// CORRECTLY HANDLED: nested nil checks with sequential ifs work.
@@ -330,7 +330,7 @@ func TestCorrectlyHandled_EarlyReturnGuard(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "guarded")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -364,7 +364,7 @@ func TestCorrectlyHandled_CalleeReturnNilChecked(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "checked")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -417,7 +417,7 @@ func TestRegression_NilBottomLeak_MethodChainReturn(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useChain")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -452,7 +452,7 @@ func TestRegression_NilBottomLeak_ReturnFromCallee(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "useSlice")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Should not flag states as DefinitelyNil — the callee returns
@@ -488,7 +488,7 @@ func TestRegression_VariadicParam_RangeOverNilIsSafe(t *testing.T) {
 		}
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)
@@ -531,7 +531,7 @@ func TestRegression_VariadicParam_WithCallerPassingArgs(t *testing.T) {
 		}
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)
@@ -569,7 +569,7 @@ func TestRegression_VariadicParam_DirectIndexWithLenGuard(t *testing.T) {
 		}
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)
@@ -619,7 +619,7 @@ func TestRegression_NilBottomLeak_BuiltinAppend(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	for _, f := range findings {
@@ -664,7 +664,7 @@ func TestRegression_NilBottomLeak_AppendInLoop(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "caller")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	for _, f := range findings {
@@ -697,7 +697,7 @@ func TestRegression_NilBottomLeak_SliceAppendThenDeref(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	for _, f := range findings {
@@ -730,7 +730,7 @@ func TestRegression_NilBottomLeak_MakeAndAppend(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	for _, f := range findings {
@@ -758,7 +758,7 @@ func TestRegression_NilBottomLeak_MultiReturnBuiltin(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "lookup")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	for _, f := range findings {
@@ -794,7 +794,7 @@ func TestRegression_NilBottomLeak_VarSliceNeverAppended(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	for _, f := range findings {
@@ -823,7 +823,7 @@ func TestRegression_NilBottomLeak_CalleeReturnsNilOnAllPaths(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "deref")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.NotEmpty(t, findings, "should flag dereference of always-nil return")
@@ -862,7 +862,7 @@ func TestRegression_NilBottomLeak_CalleeReturnsNilOnSomePaths(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -888,7 +888,7 @@ func TestRegression_NilBottomLeak_UnresolvedCall(t *testing.T) {
 	fn := findSSAFunc(t, ssaPkg, "consume")
 
 	// No resolver — simulates unresolved dispatch.
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	for _, f := range findings {
@@ -926,7 +926,7 @@ func TestRegression_NilBottomLeak_ChainedCallResults(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.Empty(t, findings,
@@ -951,7 +951,7 @@ func TestRegression_NilBottomLeak_TransferCallNilBottomGuard(t *testing.T) {
 	`)
 	fn := findSSAFunc(t, ssaPkg, "use")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// sideEffect returns void — its call result is not used as a pointer.
@@ -984,7 +984,7 @@ func TestRegression_NilBottomLeak_ComputeReturnNilStates_NoReturnInstructions(t 
 	`)
 	fn := findSSAFunc(t, ssaPkg, "caller")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// neverReturns panics — summary has nil returns.
@@ -1030,7 +1030,7 @@ func TestRegression_VariadicParam_NoCallersAtAll(t *testing.T) {
 
 	fn := findSSAFunc(t, ssaPkg, "NewData")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	for _, f := range findings {

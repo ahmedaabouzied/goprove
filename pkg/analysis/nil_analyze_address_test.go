@@ -39,7 +39,7 @@ func TestAddress_FieldReload(t *testing.T) {
 	t.Parallel()
 	fn, _ := findTestdataFunc(t, "AddrFieldReload")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	// Only the parameter 'o' itself should warn (MaybeNil).
@@ -62,7 +62,7 @@ func TestAddress_FieldReloadMultiple(t *testing.T) {
 	t.Parallel()
 	fn, _ := findTestdataFunc(t, "AddrFieldReloadMultiple")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	nilFindings := 0
@@ -81,7 +81,7 @@ func TestAddress_NestedFieldCheck(t *testing.T) {
 	t.Parallel()
 	fn, _ := findTestdataFunc(t, "AddrNestedFieldCheck")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	nilFindings := 0
@@ -100,7 +100,7 @@ func TestAddress_FieldNotChecked(t *testing.T) {
 	t.Parallel()
 	fn, _ := findTestdataFunc(t, "AddrFieldNotChecked")
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(fn)
 
 	require.NotEmpty(t, findings,

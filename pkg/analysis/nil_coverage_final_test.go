@@ -52,7 +52,7 @@ func TestCovFinal_ReceiverInitWithoutParamStates(t *testing.T) {
 
 	// Analyze with nil paramNilStates → exercises receiver init
 	// creating state[blocks[0]] from scratch.
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	findings := analyzer.Analyze(method)
 	_ = findings
 }
@@ -69,7 +69,7 @@ func TestCovFinal_ResolveCalleesWithCHAResolver(t *testing.T) {
 	require.NotEmpty(t, pkgs)
 
 	resolver := analysis.NewCHAResolver(prog)
-	analyzer := analysis.NewNilAnalyzer(resolver, nil)
+	analyzer := analysis.NewNilAnalyzer(resolver, nil, nil)
 
 	// Find a function that makes interface calls — exercises resolver path.
 	for _, member := range pkgs[0].Members {
@@ -145,7 +145,7 @@ func TestCovFinal_CallerNotInConvergedStates(t *testing.T) {
 		}
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	states := analysis.ComputeParamNilStatesAnalysis(
 		[]*ssa.Package{ssaPkg}, analyzer,
 	)

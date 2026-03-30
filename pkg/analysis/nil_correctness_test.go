@@ -32,7 +32,7 @@ func TestSoundness_NilLiteralDerefIsBug(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Len(t, findings, 1)
 	require.Equal(t, analysis.Bug, findings[0].Severity,
 		"dereferencing nil literal MUST be Bug, not Warning")
@@ -48,7 +48,7 @@ func TestSoundness_ExplicitNilAssignDerefIsBug(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Len(t, findings, 1)
 	require.Equal(t, analysis.Bug, findings[0].Severity)
 }
@@ -86,7 +86,7 @@ func TestSafety_NilCheckGuardIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings, "nil-checked deref MUST be safe")
 }
 
@@ -102,7 +102,7 @@ func TestSafety_EarlyReturnGuardIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings, "early return guard MUST be safe")
 }
 
@@ -116,7 +116,7 @@ func TestSafety_NewIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings, "new() always returns non-nil")
 }
 
@@ -131,7 +131,7 @@ func TestSafety_AddressOfIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings, "&x always returns non-nil")
 }
 
@@ -145,7 +145,7 @@ func TestSafety_MakeSliceIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings, "make([]T) always returns non-nil")
 }
 
@@ -158,7 +158,7 @@ func TestSafety_MakeMapIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings, "make(map) always returns non-nil")
 }
 
@@ -171,7 +171,7 @@ func TestSafety_MakeChanIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings, "make(chan) always returns non-nil")
 }
 
@@ -221,7 +221,7 @@ func TestInterprocedural_CalleeReturnsNonNilIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings,
 		"callee that always returns new() → deref is safe")
 }
@@ -239,7 +239,7 @@ func TestInterprocedural_CalleeReturnsNilIsBugOrWarning(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.NotEmpty(t, findings,
 		"callee that returns nil → deref MUST produce finding")
 }
@@ -261,7 +261,7 @@ func TestInterprocedural_CalleeReturnCheckedIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings,
 		"callee return checked before use → safe")
 }
@@ -287,7 +287,7 @@ func TestPhi_BothBranchesNonNilIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings,
 		"phi with both edges non-nil → safe")
 }
@@ -306,7 +306,7 @@ func TestPhi_OneBranchNilIsWarning(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.NotEmpty(t, findings)
 	require.Equal(t, analysis.Warning, findings[0].Severity,
 		"phi with one nil edge → Warning, not Bug")
@@ -325,7 +325,7 @@ func TestPhi_AllBranchesNilIsBug(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.NotEmpty(t, findings)
 	require.Equal(t, analysis.Bug, findings[0].Severity,
 		"phi with all nil edges → Bug")
@@ -351,7 +351,7 @@ func TestAddr_FieldReloadAfterNilCheckIsSafe(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	// Only the param 'o' should warn. o.In after nil check should NOT.
 	for _, f := range findings {
 		require.NotContains(t, f.Message, "nil dereference of nil pointer",
@@ -375,7 +375,7 @@ func TestAddr_GlobalNilCheckIsSafe(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	// Global is nil-checked. No Bug findings should exist.
 	for _, f := range findings {
 		require.NotEqual(t, analysis.Bug, f.Severity,
@@ -403,7 +403,7 @@ func TestInvoke_UncheckedInterfaceIsWarning(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.NotEmpty(t, findings,
 		"interface invoke on unchecked param MUST produce warning")
 	require.Equal(t, analysis.Warning, findings[0].Severity)
@@ -425,7 +425,7 @@ func TestInvoke_CheckedInterfaceIsSafe(t *testing.T) {
 	}
 	require.NotNil(t, fn)
 
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings,
 		"interface invoke after nil check MUST be safe")
 }
@@ -444,7 +444,7 @@ func TestConvert_PropagatesNilState(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings,
 		"unsafe.Pointer(&b) → Convert chain should be non-nil")
 }
@@ -464,7 +464,7 @@ func TestReceiver_AssumedNonNil(t *testing.T) {
 	require.NoError(t, err)
 	_ = prog
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 	for _, member := range pkgs[0].Members {
 		fn, ok := member.(*ssa.Function)
 		if !ok || fn.Signature.Recv() == nil {
@@ -494,7 +494,7 @@ func TestDedup_SameVarOnce(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Len(t, findings, 1,
 		"same variable dereferenced 3 times → 1 finding only")
 }
@@ -508,7 +508,7 @@ func TestDedup_DifferentVarsEach(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Len(t, findings, 2,
 		"two different variables → 2 findings")
 }
@@ -533,7 +533,7 @@ func TestLoop_NilCheckInLoopIsSafe(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings, "nil check in loop body → safe")
 }
 
@@ -551,7 +551,7 @@ func TestLoop_UncheckedDerefInLoopIsWarning(t *testing.T) {
 		}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.NotEmpty(t, findings, "unchecked deref in loop → warning")
 }
 
@@ -566,7 +566,7 @@ func TestEdge_EmptyFunction(t *testing.T) {
 		func f() {}
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings)
 }
 
@@ -577,7 +577,7 @@ func TestEdge_NoPointerOps(t *testing.T) {
 		func f(x, y int) int { return x + y }
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings)
 }
 
@@ -589,7 +589,7 @@ func TestEdge_AnalyzerReuse(t *testing.T) {
 		func warn(p *int) int { return *p }
 	`)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
 
 	// First: safe function.
 	f1 := analyzer.Analyze(findSSAFunc(t, ssaPkg, "safe"))
@@ -611,7 +611,7 @@ func TestEdge_StringIndexNotNilWarning(t *testing.T) {
 		func f(s string, i int) byte { return s[i] }
 	`)
 	fn := findSSAFunc(t, ssaPkg, "f")
-	findings := analysis.NewNilAnalyzer(nil, nil).Analyze(fn)
+	findings := analysis.NewNilAnalyzer(nil, nil, nil).Analyze(fn)
 	require.Empty(t, findings,
 		"string indexing must never produce nil dereference warning")
 }
