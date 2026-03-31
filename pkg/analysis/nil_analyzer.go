@@ -787,7 +787,48 @@ func (a *NilAnalyzer) transferExtractInstr(block *ssa.BasicBlock, v *ssa.Extract
 		a.state[block][v] = MaybeNil
 		return
 	}
-	// Not an *ssa.Call. Fall back to MaybeNil.
+	// Can be an *ssa.TypeAssert
+	if ta, isTA := v.Tuple.(*ssa.TypeAssert); isTA && ta.CommaOk {
+		/*
+			An example is:
+				type tHelper interface {
+			      Helper()
+			  }
+
+			  if h, ok := t.(tHelper); ok {
+			      h.Helper()  // ← Warning: h might be nil
+			  }
+
+			  This compiles to the same SSA pattern:
+
+			  t0 = TypeAssert t <tHelper> ,ok
+			  t1 = Extract t0 #1          (ok bool)
+			  if t1 goto true else false
+			  true:
+			    t2 = Extract t0 #0        (tHelper — DefinitelyNotNil here)
+			    invoke t2.Helper()         ← flagged as MaybeNil
+		*/
+		if v.Index == 1 {
+			// ok bool not nillable
+			a.state[block][v] = DefinitelyNotNil
+			return
+		}
+		// Index 0 - The asserted value
+		if len(block.Preds) == 1 {
+			pred := block.Preds[0]
+			if ifInstr, ok := pred.Instrs[len(pred.Instrs)-1].(*ssa.If); ok {
+				if okExtract, ok := ifInstr.Cond.(*ssa.Extract); ok {
+					if okExtract.Tuple == ta && okExtract.Index == 1 && pred.Succs[0] == block {
+						if isNillable(v) {
+							a.state[block][v] = DefinitelyNotNil
+							return
+						}
+					}
+				}
+			}
+		}
+	}
+	// Not an *ssa.Call. or *ssa.TypeAssert. Fallback to MaybeNil.
 	a.state[block][v] = MaybeNil
 }
 
