@@ -436,6 +436,32 @@ func (a *NilAnalyzer) lookupNilState(block *ssa.BasicBlock, v ssa.Value) NilStat
 
 // Checks for if something == nil or something != nil
 func (a *NilAnalyzer) refineFromPredecessor(block *ssa.BasicBlock) {
+	/*
+			These two cases produce the same SSA that we handle here
+
+		 	Type switch pattern case:
+
+		    switch v := x.(type) {
+		    case *Foo:
+		        v.Field   // v is proven non-nil — type assertion succeeded
+		    }
+
+		  Comma-ok pattern case:
+
+		    if v, ok := x.(*Foo); ok {
+		        v.Field   // v is proven non-nil — ok is true
+		    }
+
+		  SSA lowering (both patterns produce the same SSA):
+
+		    Block 0:
+		      t0 = TypeAssert x.(*Foo) ,ok
+		      t1 = Extract t0 #0          (*Foo)
+		      t2 = Extract t0 #1          (ok bool)
+		      if t2 goto Block1 else Block2
+		    Block 1:                      (true branch — assertion succeeded)
+		      &t1.Field                   (safe — t1 is DefinitelyNotNil here)
+	*/
 	if len(block.Preds) != 1 {
 		// The block has multiple predecessors. The initBlockState call captured the correct state already.
 		return
@@ -447,16 +473,31 @@ func (a *NilAnalyzer) refineFromPredecessor(block *ssa.BasicBlock) {
 		if !ok {
 			continue
 		}
-		// IF statement
+		// If statement
 
 		// Figure out if we're in a true or false branch
 		isTrueBranch := pred.Succs[0] == block
 
-		binOp, ok := ifInstr.Cond.(*ssa.BinOp)
-		if !ok {
-			continue
+		// Nil check refinement
+		if binOp, ok := ifInstr.Cond.(*ssa.BinOp); ok {
+			a.refineFromCondition(block, binOp, isTrueBranch)
 		}
-		a.refineFromCondition(block, binOp, isTrueBranch)
+
+		// TypeAssert ok refinement
+		if okExtract, ok := ifInstr.Cond.(*ssa.Extract); ok && okExtract.Index == 1 {
+			if ta, ok := okExtract.Tuple.(*ssa.TypeAssert); ok && ta.CommaOk {
+				if isTrueBranch {
+					for _, instr := range pred.Instrs {
+						if ext, ok := instr.(*ssa.Extract); ok && ext.Tuple == ta && ext.Index == 0 {
+							if isNillable(ext) {
+								a.state[block][ext] = DefinitelyNotNil
+							}
+							break
+						}
+					}
+				}
+			}
+		}
 	}
 }
 
