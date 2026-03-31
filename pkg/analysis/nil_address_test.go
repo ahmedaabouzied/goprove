@@ -21,7 +21,7 @@ func TestResolveAddress_Global(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, addrGlobal, key.kind)
 	require.Equal(t, ssa.Value(g), key.base)
-	require.Equal(t, -1, key.field)
+	require.Equal(t, "", key.path)
 }
 
 func TestResolveAddress_FieldAddr(t *testing.T) {
@@ -35,7 +35,7 @@ func TestResolveAddress_FieldAddr(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, addrField, key.kind)
 	require.Equal(t, ssa.Value(param), key.base)
-	require.Equal(t, 3, key.field)
+	require.Equal(t, "3", key.path)
 }
 
 func TestResolveAddress_IndexAddr(t *testing.T) {
@@ -49,7 +49,7 @@ func TestResolveAddress_IndexAddr(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, addrIndex, key.kind)
 	require.Equal(t, ssa.Value(param), key.base)
-	require.Equal(t, -1, key.field)
+	require.Equal(t, "", key.path)
 }
 
 func TestResolveAddress_Unsupported(t *testing.T) {

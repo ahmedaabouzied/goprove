@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"go/token"
+	"strconv"
 
 	"golang.org/x/tools/go/ssa"
 )
@@ -15,11 +16,8 @@ type addressKey struct {
 	// For IndexAddr: the array/slice pointer.
 	base ssa.Value
 
-	// field is the field or element index for composite addresses.
-	// For FieldAddr: the struct field index.
-	// For Global: -1 (not applicable).
-	// For IndexAddr: -1 (we don't track individual indices).
-	field int
+	// Field path: 3 or 1.3, or 1.3.0, ..
+	path string
 
 	// kind distinguishes address types with the same base.
 	kind addressKind
@@ -42,16 +40,36 @@ const (
 func resolveAddress(addr ssa.Value) (addressKey, bool) {
 	switch v := addr.(type) {
 	case *ssa.Global:
-		return addressKey{base: v, field: -1, kind: addrGlobal}, true
-	case *ssa.FieldAddr:
-		return addressKey{base: v.X, field: v.Field, kind: addrField}, true
+		return addressKey{base: v, path: "", kind: addrGlobal}, true
 	case *ssa.IndexAddr:
-		return addressKey{base: v.X, field: -1, kind: addrIndex}, true
+		return addressKey{base: v.X, path: "", kind: addrIndex}, true
 	case *ssa.Alloc:
-		return addressKey{base: v, field: -1, kind: addrLocal}, true
+		return addressKey{base: v, path: "", kind: addrLocal}, true
+	case *ssa.FieldAddr:
+		return resolveFieldAddr(v)
 	default:
 		return addressKey{}, false
 	}
+}
+
+func resolveFieldAddr(fa *ssa.FieldAddr) (addressKey, bool) {
+	path := strconv.Itoa(fa.Field)
+	base := fa.X
+
+	for {
+		unOp, ok := base.(*ssa.UnOp)
+		if !ok || unOp.Op != token.MUL {
+			break
+		}
+		parent, ok := unOp.X.(*ssa.FieldAddr)
+		if !ok {
+			break
+		}
+		path = strconv.Itoa(parent.Field) + "." + path
+		base = parent.X
+	}
+
+	return addressKey{base, path, addrField}, true
 }
 
 // resolveLoadAddress extracts the addressKey for a Load instruction.
