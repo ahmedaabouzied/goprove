@@ -1,6 +1,8 @@
 package analysis
 
 import (
+	"maps"
+
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/ssa"
 )
@@ -70,6 +72,7 @@ func ComputeParamNilStatesAnalysis(
 		}
 	}
 
+	var prevGlobalStates map[addressKey]NilState
 	maxIterations := 5
 	for iter := 0; iter < maxIterations; iter++ {
 		// Analyze all functions with current param states.
@@ -78,11 +81,25 @@ func ComputeParamNilStatesAnalysis(
 		}
 
 		globalStates := make(map[addressKey]NilState)
-		for _, addrByBlock := range analyzer.convergedAddrState {
-			for _, blockAddr := range addrByBlock {
-				for key, state := range blockAddr {
-					if key.kind != addrGlobal {
+		for _, fn := range allFunctions {
+			for _, block := range fn.Blocks {
+				for _, instr := range block.Instrs {
+					store, ok := instr.(*ssa.Store)
+					if !ok {
 						continue
+					}
+					key, ok := resolveAddress(store.Addr)
+					if !ok || key.kind != addrGlobal {
+						continue
+					}
+					// Look up stored value's nil state from converged analysis
+					state := classifyArg(store.Val)
+					if cs := analyzer.convergedStates[fn]; cs != nil {
+						if bs := cs[block]; bs != nil {
+							if s, ok := bs[store.Val]; ok {
+								state = s
+							}
+						}
 					}
 					if existing, ok := globalStates[key]; ok {
 						globalStates[key] = existing.Join(state)
@@ -92,9 +109,11 @@ func ComputeParamNilStatesAnalysis(
 				}
 			}
 		}
+
 		analyzer.SetGlobalNilStates(globalStates)
 
-		changed := false
+		changed := !maps.Equal(prevGlobalStates, globalStates)
+		prevGlobalStates = globalStates
 		for callee, callSites := range sites {
 			nParams := len(callee.Params)
 			if nParams == 0 {
