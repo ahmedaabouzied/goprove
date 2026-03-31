@@ -786,16 +786,9 @@ func TestGlobalAddr_PassedAsArg(t *testing.T) {
 	fn := findSSAFunc(t, ssaPkg, "helper")
 	findings := analyzer.Analyze(fn)
 
-	// g is non-nil, passed to helper. Ideally helper's param p would be
-	// DefinitelyNotNil. However, the param analysis at the call site sees
-	// the SSA load register (t0 = *g), not the global itself. The load's
-	// nil state in the caller's converged state depends on global addr
-	// seeding of the caller, which currently doesn't propagate to the
-	// caller's value state for the load register.
-	// TODO: propagate global addr state to load values in caller's state
-	// so param analysis can see non-nil globals passed as arguments.
-	for _, f := range findings {
-		require.NotEqual(t, analysis.Bug, f.Severity,
-			"should not be Bug even if global state doesn't propagate to param")
-	}
+	// g is non-nil, passed to helper. The UnOp transfer writes the
+	// global's addr state into the value state for the load register,
+	// making it visible to param analysis at the call site.
+	require.Empty(t, findings,
+		"passing non-nil global as argument should make param safe")
 }

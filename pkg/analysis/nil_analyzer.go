@@ -632,6 +632,8 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.transferMakeClosure(block, v)
 	case *ssa.Store:
 		a.transferStoreOp(block, v)
+	case *ssa.UnOp:
+		a.transferUnOpInstr(block, v)
 	case *ssa.Call:
 		a.transferCall(block, v)
 	case *ssa.Extract:
@@ -640,6 +642,39 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.transferTypeAssertInstr(block, v)
 	case *ssa.Lookup:
 		a.transferMapLookup(block, v)
+	}
+}
+
+func (a *NilAnalyzer) transferUnOpInstr(block *ssa.BasicBlock, v *ssa.UnOp) {
+	/*
+		Handling this Go code example where init() sets a var (pointer to something) and then this var is passed to a function
+		var db *int new(int)
+		init(){
+				db = 1 // Whatever .. Just an example
+		}
+
+		func query(p *int) int {
+			return *p
+		}
+
+		func handler() int {
+			return query(db) // passes global var as an argument
+		}
+
+		handle() in SSA is represented as:
+		entry:
+			t0 = *db:*int <- UnOp MUL loading the value to the global db
+			t1 = query(t0)
+			return t1
+	*/
+	if v.Op == token.MUL {
+		if key, ok := resolveAddress(v.X); ok {
+			if m, ok := a.addrState[block]; ok {
+				if s, ok := m[key]; ok {
+					a.state[block][v] = s
+				}
+			}
+		}
 	}
 }
 
