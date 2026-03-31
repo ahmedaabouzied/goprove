@@ -28,9 +28,10 @@ type addressKey struct {
 type addressKind uint8
 
 const (
-	addrGlobal   addressKind = iota // package-level variable
-	addrField                       // struct field: base.field
-	addrIndex                       // array/slice element: base[i]
+	addrGlobal addressKind = iota // package-level variable
+	addrField                     // struct field: base.field
+	addrIndex                     // array/slice element: base[i]
+	addrLocal                     // address taken local variable
 )
 
 // resolveAddress extracts an addressKey from an SSA value that represents
@@ -46,6 +47,8 @@ func resolveAddress(addr ssa.Value) (addressKey, bool) {
 		return addressKey{base: v.X, field: v.Field, kind: addrField}, true
 	case *ssa.IndexAddr:
 		return addressKey{base: v.X, field: -1, kind: addrIndex}, true
+	case *ssa.Alloc:
+		return addressKey{base: v, field: -1, kind: addrLocal}, true
 	default:
 		return addressKey{}, false
 	}
