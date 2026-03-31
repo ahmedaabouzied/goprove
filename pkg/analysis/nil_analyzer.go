@@ -21,8 +21,14 @@ type NilAnalyzer struct {
 	targetPkgs      map[*ssa.Package]bool
 	findings        []Finding
 	convergedStates map[*ssa.Function]map[*ssa.BasicBlock]map[ssa.Value]NilState
-	addrState       map[*ssa.BasicBlock]map[addressKey]NilState
-	err             error
+
+	// func level. Gets reset at each call of Analyze().
+	addrState map[*ssa.BasicBlock]map[addressKey]NilState
+
+	// package level. Tracks all addresses across the package.
+	convergedAddrState  map[*ssa.Function]map[*ssa.BasicBlock]map[addressKey]NilState
+	globalAddressStates map[addressKey]NilState
+	err                 error
 }
 
 type NilFunctionSummary struct {
@@ -48,6 +54,10 @@ func (a *NilAnalyzer) Graph() *callgraph.Graph {
 
 func (a *NilAnalyzer) SetParamNilStates(states *ParamNilStates) {
 	a.paramNilStates = states
+}
+
+func (a *NilAnalyzer) SetGlobalNilStates(states map[addressKey]NilState) {
+	a.globalAddressStates = states
 }
 
 // SetTargetPackages limits interprocedural analysis to the given packages.
@@ -88,6 +98,20 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 				}
 			}
 		}
+	}
+
+	if a.globalAddressStates != nil {
+		if a.addrState[blocks[0]] == nil {
+			a.addrState[blocks[0]] = make(map[addressKey]NilState)
+		}
+		for k, v := range a.globalAddressStates {
+			a.addrState[blocks[0]][k] = v
+		}
+	}
+
+	// Initialize convergedAddrState only on the root Analyze() call where it has not been initialized before.
+	if a.convergedAddrState == nil {
+		a.convergedAddrState = make(map[*ssa.Function]map[*ssa.BasicBlock]map[addressKey]NilState)
 	}
 
 	if fn.Signature.Recv() != nil && len(fn.Params) > 0 && isNillable(fn.Params[0]) {
@@ -145,6 +169,7 @@ func (a *NilAnalyzer) Analyze(fn *ssa.Function) []Finding {
 		a.convergedStates = make(map[*ssa.Function]map[*ssa.BasicBlock]map[ssa.Value]NilState)
 	}
 	a.convergedStates[fn] = a.state
+	a.convergedAddrState[fn] = a.addrState
 
 	return a.findings
 }
@@ -532,6 +557,7 @@ func (a *NilAnalyzer) lookupOrComputeSummary(fn *ssa.Function) NilFunctionSummar
 	childNilAnalyzer := NewNilAnalyzer(a.resolver, a.paramNilStates, a.summaryCache)
 	childNilAnalyzer.callDepth = a.callDepth + 1
 	childNilAnalyzer.summaries = a.summaries
+	childNilAnalyzer.convergedAddrState = a.convergedAddrState
 	childNilAnalyzer.targetPkgs = a.targetPkgs
 
 	_ = childNilAnalyzer.Analyze(fn)

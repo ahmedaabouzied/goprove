@@ -60,6 +60,15 @@ func ComputeParamNilStatesAnalysis(
 			}
 		}
 	}
+	for _, pkg := range pkgs {
+		if pkg == nil {
+			continue
+		}
+
+		if initFn := pkg.Func("init"); initFn != nil {
+			allFunctions = append(allFunctions, initFn)
+		}
+	}
 
 	maxIterations := 5
 	for iter := 0; iter < maxIterations; iter++ {
@@ -67,6 +76,23 @@ func ComputeParamNilStatesAnalysis(
 		for _, fn := range allFunctions {
 			analyzer.Analyze(fn)
 		}
+
+		globalStates := make(map[addressKey]NilState)
+		for _, addrByBlock := range analyzer.convergedAddrState {
+			for _, blockAddr := range addrByBlock {
+				for key, state := range blockAddr {
+					if key.kind != addrGlobal {
+						continue
+					}
+					if existing, ok := globalStates[key]; ok {
+						globalStates[key] = existing.Join(state)
+					} else {
+						globalStates[key] = state
+					}
+				}
+			}
+		}
+		analyzer.SetGlobalNilStates(globalStates)
 
 		changed := false
 		for callee, callSites := range sites {
