@@ -254,6 +254,9 @@ func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 		// p.Field — v.X is the struct pointer
 		a.flagNilDeref(block, v.X, v.Pos(), reported)
 	case *ssa.IndexAddr:
+		if isRangeGuardedIndexAddr(block, v) {
+			break // range guarantees slice is non-nil here
+		}
 		if isSliceType(v.X) {
 			// Only flag proven nil for slices. MaybeNil is too noisy. It's the job of the bound checker to check slice bound access panics.
 			if a.lookupNilState(block, v.X) == DefinitelyNil {
@@ -273,6 +276,38 @@ func (a *NilAnalyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruct
 			a.flagNilDeref(block, v.X, v.Pos(), reported)
 		}
 	}
+}
+
+func isRangeGuardedIndexAddr(block *ssa.BasicBlock, v *ssa.IndexAddr) bool {
+	// The range loop header is the single predecessor of the body.
+	if len(block.Preds) != 1 {
+		return false
+	}
+	pred := block.Preds[0]
+	// Last instruction must be If
+	ifInstr, ok := pred.Instrs[len(pred.Instrs)-1].(*ssa.If)
+	if !ok {
+		return false
+	}
+	// Condition must be index < len(slice)
+	binOp, ok := ifInstr.Cond.(*ssa.BinOp)
+	if !ok || binOp.Op != token.LSS {
+		return false
+	}
+	// RHS must be len(same slice)
+	lenCall, ok := binOp.Y.(*ssa.Call)
+	if !ok {
+		return false
+	}
+	builtin, ok := lenCall.Call.Value.(*ssa.Builtin)
+	if !ok || builtin.Name() != "len" {
+		return false
+	}
+	// len's argument must be the same slice as IndexAddr's X
+	if len(lenCall.Call.Args) != 1 || lenCall.Call.Args[0] != v.X {
+		return false
+	}
+	return true
 }
 
 func isSliceType(v ssa.Value) bool {
@@ -683,7 +718,20 @@ func (a *NilAnalyzer) transferInstruction(block *ssa.BasicBlock, instr ssa.Instr
 		a.transferTypeAssertInstr(block, v)
 	case *ssa.Lookup:
 		a.transferMapLookup(block, v)
+	case *ssa.Range:
+		a.transferRangeInstr(block, v)
 	}
+}
+
+func (a *NilAnalyzer) transferRangeInstr(block *ssa.BasicBlock, v *ssa.Range) {
+	// For loop over a nil slice is a NoOp in Go
+	// for i := range nilSlice {} -> NoOp
+	// OR:
+	// var s []int
+	// s = nil
+	// for i := range s {} -> NoOP
+
+	a.state[block][v] = DefinitelyNotNil
 }
 
 func (a *NilAnalyzer) transferUnOpInstr(block *ssa.BasicBlock, v *ssa.UnOp) {
