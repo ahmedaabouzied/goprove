@@ -391,8 +391,15 @@ func (a *Analyzer) checkInstruction(block *ssa.BasicBlock, instr ssa.Instruction
 	switch v := instr.(type) {
 	case *ssa.BinOp:
 		if v.Op == token.QUO || v.Op == token.REM {
-			y := a.lookupInterval(block, v.Y)
-			a.flagDivisionByZero(v, y)
+			// We can check only X (one side of the operation)
+			// since Go doesn't allow math operations on
+			// different types.
+			if basic, ok := v.X.Type().
+				Underlying().(*types.Basic); ok &&
+				basic.Info()&types.IsInteger != 0 {
+				y := a.lookupInterval(block, v.Y)
+				a.flagDivisionByZero(v, y)
+			}
 		}
 		a.flagOverflow(block, v)
 	case *ssa.Convert:

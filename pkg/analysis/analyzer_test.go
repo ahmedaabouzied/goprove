@@ -583,10 +583,9 @@ func TestAnalyze(t *testing.T) {
 			severity: analysis.Warning,
 			message:  "possible division by zero",
 		},
-		"float division hits non-int const path": {
-			// Float constants have constant.Float kind, not constant.Int.
-			// lookupInterval returns Top() for them and sets a.err.
-			// Since Top contains zero, division warns.
+		"float division by constant is not flagged": {
+			// Float division by zero doesn't panic in Go (IEEE 754).
+			// The analyzer should only flag integer division by zero.
 			src: `
 				package example
 
@@ -594,10 +593,8 @@ func TestAnalyze(t *testing.T) {
 					return x / 2.0
 				}
 			`,
-			fnName:   "floatDiv",
-			wantLen:  1,
-			severity: analysis.Warning,
-			message:  "possible division by zero",
+			fnName:  "floatDiv",
+			wantLen: 0,
 		},
 		"negation of param is still Top warns": {
 			// -x negates Top → Top. Top contains zero, so division warns.
@@ -672,6 +669,184 @@ func TestAnalyze(t *testing.T) {
 				}
 			`,
 			fnName:   "divWithVarCondition",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		// ── Float division: no panic (IEEE 754) ──────────────────────
+		"float64 division by zero literal not flagged": {
+			src: `
+				package example
+
+				func floatDivZero(x float64) float64 {
+					return x / 0.0
+				}
+			`,
+			fnName:  "floatDivZero",
+			wantLen: 0,
+		},
+		"float64 division by param not flagged": {
+			src: `
+				package example
+
+				func floatDivParam(x, y float64) float64 {
+					return x / y
+				}
+			`,
+			fnName:  "floatDivParam",
+			wantLen: 0,
+		},
+		"float32 division by zero not flagged": {
+			src: `
+				package example
+
+				func float32DivZero(x float32) float32 {
+					return x / 0.0
+				}
+			`,
+			fnName:  "float32DivZero",
+			wantLen: 0,
+		},
+		"float32 division by param not flagged": {
+			src: `
+				package example
+
+				func float32DivParam(x, y float32) float32 {
+					return x / y
+				}
+			`,
+			fnName:  "float32DivParam",
+			wantLen: 0,
+		},
+		"float64 division by zero var not flagged": {
+			src: `
+				package example
+
+				func floatQuoByZeroVar() float64 {
+					var y float64
+					return 1.0 / y
+				}
+			`,
+			fnName:  "floatQuoByZeroVar",
+			wantLen: 0,
+		},
+		"float64 division in expression chain not flagged": {
+			src: `
+				package example
+
+				func floatChain(a, b, c float64) float64 {
+					return (a / b) / c
+				}
+			`,
+			fnName:  "floatChain",
+			wantLen: 0,
+		},
+		"mixed float result still flags int division": {
+			// The division itself is integer; float64() conversion is after.
+			src: `
+				package example
+
+				func mixedDiv(x, y int) float64 {
+					return float64(x / y)
+				}
+			`,
+			fnName:   "mixedDiv",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"int division by zero literal still flagged after float fix": {
+			src: `
+				package example
+
+				func intDivZero(x int) int {
+					zero := 0
+					return x / zero
+				}
+			`,
+			fnName:   "intDivZero",
+			wantLen:  1,
+			severity: analysis.Bug,
+			message:  "division by zero",
+		},
+		"int remainder by zero still flagged after float fix": {
+			src: `
+				package example
+
+				func intModZero(x int) int {
+					zero := 0
+					return x % zero
+				}
+			`,
+			fnName:   "intModZero",
+			wantLen:  1,
+			severity: analysis.Bug,
+			message:  "division by zero",
+		},
+		"int div by param still warns after float fix": {
+			src: `
+				package example
+
+				func intDivParam(x, y int) int {
+					return x / y
+				}
+			`,
+			fnName:   "intDivParam",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"uint division by param still warns": {
+			src: `
+				package example
+
+				func uintDiv(x, y uint) uint {
+					return x / y
+				}
+			`,
+			fnName:   "uintDiv",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"int8 division by param still warns": {
+			// Also produces an overflow warning for int8, so expect 2.
+			src: `
+				package example
+
+				func int8Div(x, y int8) int8 {
+					return x / y
+				}
+			`,
+			fnName:   "int8Div",
+			wantLen:  2,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"int64 division by param still warns": {
+			src: `
+				package example
+
+				func int64Div(x, y int64) int64 {
+					return x / y
+				}
+			`,
+			fnName:   "int64Div",
+			wantLen:  1,
+			severity: analysis.Warning,
+			message:  "possible division by zero",
+		},
+		"float and int division in same function": {
+			// Only the integer division should be flagged.
+			src: `
+				package example
+
+				func bothDivs(a int, b float64) float64 {
+					_ = a / a
+					return b / b
+				}
+			`,
+			fnName:   "bothDivs",
 			wantLen:  1,
 			severity: analysis.Warning,
 			message:  "possible division by zero",
