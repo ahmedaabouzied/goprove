@@ -9,69 +9,9 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// ===========================================================================
-// Address-taken local variable (addrLocal) tests
-//
-// When a local variable has its address taken (named return, &x),
-// SSA uses Store/UnOp(MUL) pairs instead of direct value flow.
-// The resolveAddress function now handles *ssa.Alloc, so stores
-// to address-taken locals are tracked in addrState and loads
-// see the stored nil state via transferUnOpInstr.
-//
-// SSA pattern for named return:
-//
-//   func New() (e *T) {
-//       e = &T{}            // Store &T{} to e's alloc
-//       e.Field = x         // Load e (UnOp MUL), then FieldAddr
-//       return
-//   }
-//
-//   entry:
-//     t0 = local *T (e)    ← Alloc
-//     t1 = &T{}            ← Alloc
-//     *t0 = t1             ← Store: non-nil to t0
-//     t2 = *t0             ← UnOp MUL: load e — now DefinitelyNotNil
-//     &t2.Field            ← FieldAddr: safe
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
-// Testdata fixtures (use real packages for struct field patterns)
-// ---------------------------------------------------------------------------
-
-func TestLocalAddr_Testdata(t *testing.T) {
-	t.Parallel()
-
-	_, pkgs, err := loader.Load("../../pkg/testdata")
-	require.NoError(t, err)
-	require.NotEmpty(t, pkgs)
-	pkg := pkgs[0]
-
-	tests := []struct {
-		fnName  string
-		wantLen int
-	}{
-		// CheckFieldReload: if o.In != nil { o.In.Val } — field reload safe
-		{"CheckFieldReload", 1}, // 1 for param o, 0 for field reload
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.fnName, func(t *testing.T) {
-			t.Parallel()
-			fn := findSSAFunc(t, pkg, tt.fnName)
-			require.NotNil(t, fn)
-
-			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-			findings := analyzer.Analyze(fn)
-			require.Len(t, findings, tt.wantLen,
-				"%s: wrong finding count", tt.fnName)
-		})
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Inline tests for address-taken local patterns
 // ---------------------------------------------------------------------------
-
 func TestLocalAddr_Inline(t *testing.T) {
 	t.Parallel()
 
@@ -254,6 +194,63 @@ func TestLocalAddr_Inline(t *testing.T) {
 				require.Equal(t, tt.severity, findings[0].Severity)
 				require.Contains(t, findings[0].Message, tt.message)
 			}
+		})
+	}
+}
+
+// ===========================================================================
+// Address-taken local variable (addrLocal) tests
+//
+// When a local variable has its address taken (named return, &x),
+// SSA uses Store/UnOp(MUL) pairs instead of direct value flow.
+// The resolveAddress function now handles *ssa.Alloc, so stores
+// to address-taken locals are tracked in addrState and loads
+// see the stored nil state via transferUnOpInstr.
+//
+// SSA pattern for named return:
+//
+//   func New() (e *T) {
+//       e = &T{}            // Store &T{} to e's alloc
+//       e.Field = x         // Load e (UnOp MUL), then FieldAddr
+//       return
+//   }
+//
+//   entry:
+//     t0 = local *T (e)    ← Alloc
+//     t1 = &T{}            ← Alloc
+//     *t0 = t1             ← Store: non-nil to t0
+//     t2 = *t0             ← UnOp MUL: load e — now DefinitelyNotNil
+//     &t2.Field            ← FieldAddr: safe
+// ===========================================================================
+// ---------------------------------------------------------------------------
+// Testdata fixtures (use real packages for struct field patterns)
+// ---------------------------------------------------------------------------
+func TestLocalAddr_Testdata(t *testing.T) {
+	t.Parallel()
+
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+	pkg := pkgs[0]
+
+	tests := []struct {
+		fnName  string
+		wantLen int
+	}{
+		// CheckFieldReload: if o.In != nil { o.In.Val } — field reload safe
+		{"CheckFieldReload", 1}, // 1 for param o, 0 for field reload
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fnName, func(t *testing.T) {
+			t.Parallel()
+			fn := findSSAFunc(t, pkg, tt.fnName)
+			require.NotNil(t, fn)
+
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+			findings := analyzer.Analyze(fn)
+			require.Len(t, findings, tt.wantLen,
+				"%s: wrong finding count", tt.fnName)
 		})
 	}
 }

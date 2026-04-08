@@ -7,175 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewInterval(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		lo   int64
-		hi   int64
-		want Interval
-	}{
-		{"normal range", 1, 10, Interval{Lo: 1, Hi: 10}},
-		{"single point", 5, 5, Interval{Lo: 5, Hi: 5}},
-		{"negative range", -10, -1, Interval{Lo: -10, Hi: -1}},
-		{"spans zero", -5, 5, Interval{Lo: -5, Hi: 5}},
-		{"zero to zero", 0, 0, Interval{Lo: 0, Hi: 0}},
-		{"inverted returns bottom", 10, 5, Bottom()},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := NewInterval(tt.lo, tt.hi)
-			require.True(t, got.Equals(tt.want), "NewInterval(%d, %d) = %+v, want %+v", tt.lo, tt.hi, got, tt.want)
-		})
-	}
-}
-
-func TestContainsZero(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		interval Interval
-		want     bool
-	}{
-		{"positive range", NewInterval(1, 10), false},
-		{"negative range", NewInterval(-10, -1), false},
-		{"spans zero", NewInterval(-5, 5), true},
-		{"exactly zero", NewInterval(0, 0), true},
-		{"lo is zero", NewInterval(0, 10), true},
-		{"hi is zero", NewInterval(-10, 0), true},
-		{"single positive", NewInterval(1, 1), false},
-		{"single negative", NewInterval(-1, -1), false},
-		{"top", Top(), true},
-		{"bottom", Bottom(), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tt.want, tt.interval.ContainsZero())
-		})
-	}
-}
-
-func TestJoin(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		a    Interval
-		b    Interval
-		want Interval
-	}{
-		// Normal cases
-		{"overlapping", NewInterval(1, 5), NewInterval(3, 8), NewInterval(1, 8)},
-		{"disjoint", NewInterval(1, 3), NewInterval(7, 10), NewInterval(1, 10)},
-		{"adjacent", NewInterval(1, 5), NewInterval(6, 10), NewInterval(1, 10)},
-		{"identical", NewInterval(3, 7), NewInterval(3, 7), NewInterval(3, 7)},
-		{"one contains other", NewInterval(1, 10), NewInterval(3, 7), NewInterval(1, 10)},
-		{"negative ranges", NewInterval(-10, -5), NewInterval(-3, -1), NewInterval(-10, -1)},
-		{"spans zero", NewInterval(-5, 0), NewInterval(0, 5), NewInterval(-5, 5)},
-		{"single points", NewInterval(3, 3), NewInterval(7, 7), NewInterval(3, 7)},
-
-		// Bottom identity
-		{"bottom join normal", Bottom(), NewInterval(1, 5), NewInterval(1, 5)},
-		{"normal join bottom", NewInterval(1, 5), Bottom(), NewInterval(1, 5)},
-		{"bottom join bottom", Bottom(), Bottom(), Bottom()},
-
-		// Top absorbs
-		{"top join normal", Top(), NewInterval(1, 5), Top()},
-		{"normal join top", NewInterval(1, 5), Top(), Top()},
-		{"top join top", Top(), Top(), Top()},
-		{"top join bottom", Top(), Bottom(), Top()},
-		{"bottom join top", Bottom(), Top(), Top()},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.a.Join(tt.b)
-			require.True(t, got.Equals(tt.want), "%s: %+v.Join(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
-		})
-	}
-}
-
-func TestMeet(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		a    Interval
-		b    Interval
-		want Interval
-	}{
-		// Normal cases
-		{"overlapping", NewInterval(1, 10), NewInterval(5, 20), NewInterval(5, 10)},
-		{"one contains other", NewInterval(1, 10), NewInterval(3, 7), NewInterval(3, 7)},
-		{"identical", NewInterval(3, 7), NewInterval(3, 7), NewInterval(3, 7)},
-		{"single overlap point", NewInterval(1, 5), NewInterval(5, 10), NewInterval(5, 5)},
-		{"negative overlap", NewInterval(-10, -3), NewInterval(-7, -1), NewInterval(-7, -3)},
-
-		// Empty intersection returns bottom
-		{"disjoint", NewInterval(1, 5), NewInterval(10, 20), Bottom()},
-		{"disjoint adjacent", NewInterval(1, 5), NewInterval(6, 10), Bottom()},
-		{"disjoint negative", NewInterval(-10, -5), NewInterval(1, 5), Bottom()},
-
-		// Top identity
-		{"top meet normal", Top(), NewInterval(1, 5), NewInterval(1, 5)},
-		{"normal meet top", NewInterval(1, 5), Top(), NewInterval(1, 5)},
-		{"top meet top", Top(), Top(), Top()},
-
-		// Bottom absorbs
-		{"bottom meet normal", Bottom(), NewInterval(1, 5), Bottom()},
-		{"normal meet bottom", NewInterval(1, 5), Bottom(), Bottom()},
-		{"bottom meet bottom", Bottom(), Bottom(), Bottom()},
-		{"top meet bottom", Top(), Bottom(), Bottom()},
-		{"bottom meet top", Bottom(), Top(), Bottom()},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.a.Meet(tt.b)
-			require.True(t, got.Equals(tt.want), "%s: %+v.Meet(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
-		})
-	}
-}
-
-func TestEquals(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		a    Interval
-		b    Interval
-		want bool
-	}{
-		// Equal cases
-		{"same range", NewInterval(1, 10), NewInterval(1, 10), true},
-		{"same single point", NewInterval(5, 5), NewInterval(5, 5), true},
-		{"both bottom", Bottom(), Bottom(), true},
-		{"both top", Top(), Top(), true},
-		{"both zero", NewInterval(0, 0), NewInterval(0, 0), true},
-
-		// Not equal cases
-		{"different lo", NewInterval(1, 10), NewInterval(2, 10), false},
-		{"different hi", NewInterval(1, 10), NewInterval(1, 9), false},
-		{"different both", NewInterval(1, 5), NewInterval(6, 10), false},
-		{"bottom vs normal", Bottom(), NewInterval(1, 5), false},
-		{"normal vs bottom", NewInterval(1, 5), Bottom(), false},
-		{"top vs normal", Top(), NewInterval(1, 5), false},
-		{"normal vs top", NewInterval(1, 5), Top(), false},
-		{"top vs bottom", Top(), Bottom(), false},
-		{"bottom vs top", Bottom(), Top(), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tt.want, tt.a.Equals(tt.b))
-		})
-	}
-}
-
 func TestAdd(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -206,7 +37,7 @@ func TestAdd(t *testing.T) {
 	}
 }
 
-func TestSub(t *testing.T) {
+func TestAdd_Overflow(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -214,354 +45,20 @@ func TestSub(t *testing.T) {
 		b    Interval
 		want Interval
 	}{
-		{"positive ranges", NewInterval(5, 10), NewInterval(1, 3), NewInterval(2, 9)},
-		{"same interval", NewInterval(3, 7), NewInterval(3, 7), NewInterval(-4, 4)},
-		{"single points", NewInterval(10, 10), NewInterval(3, 3), NewInterval(7, 7)},
-		{"negative ranges", NewInterval(-5, -1), NewInterval(-3, -2), NewInterval(-3, 2)},
-		{"mixed signs", NewInterval(-5, 5), NewInterval(1, 3), NewInterval(-8, 4)},
-		{"sub zero", NewInterval(1, 5), NewInterval(0, 0), NewInterval(1, 5)},
-		{"result spans zero", NewInterval(1, 5), NewInterval(2, 8), NewInterval(-7, 3)},
-		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
-		{"bottom propagates rhs", NewInterval(1, 5), Bottom(), Bottom()},
-		{"top propagates", Top(), NewInterval(1, 5), Top()},
-		{"top propagates rhs", NewInterval(1, 5), Top(), Top()},
+		// int64 overflow: MaxInt64 + MaxInt64 wraps to negative
+		{"max plus max wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(-2, -2)},
+		// int64 underflow: MinInt64 + MinInt64 wraps to 0
+		{"min plus min wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(math.MinInt64, math.MinInt64), NewInterval(0, 0)},
+		// MaxInt64 + 1 overflows
+		{"max plus one wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(1, 1), NewInterval(math.MinInt64, math.MinInt64)},
+		// MinInt64 + (-1) underflows
+		{"min plus neg one wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(-1, -1), NewInterval(math.MaxInt64, math.MaxInt64)},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := tt.a.Sub(tt.b)
-			require.True(t, got.Equals(tt.want), "%s: %+v.Sub(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
-		})
-	}
-}
-
-func TestMul(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		a    Interval
-		b    Interval
-		want Interval
-	}{
-		{"positive ranges", NewInterval(2, 4), NewInterval(3, 5), NewInterval(6, 20)},
-		{"negative times positive", NewInterval(-3, -1), NewInterval(2, 4), NewInterval(-12, -2)},
-		{"negative times negative", NewInterval(-4, -2), NewInterval(-3, -1), NewInterval(2, 12)},
-		{"spans zero lhs", NewInterval(-2, 3), NewInterval(1, 4), NewInterval(-8, 12)},
-		{"spans zero both", NewInterval(-2, 3), NewInterval(-1, 4), NewInterval(-8, 12)},
-		{"single points", NewInterval(3, 3), NewInterval(7, 7), NewInterval(21, 21)},
-		{"mul by zero interval", NewInterval(1, 5), NewInterval(0, 0), NewInterval(0, 0)},
-		{"mul by one", NewInterval(3, 7), NewInterval(1, 1), NewInterval(3, 7)},
-		{"negative spans zero", NewInterval(-3, 2), NewInterval(-4, 1), NewInterval(-8, 12)},
-		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
-		{"top propagates", Top(), NewInterval(1, 5), Top()},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.a.Mul(tt.b)
-			require.True(t, got.Equals(tt.want), "%s: %+v.Mul(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
-		})
-	}
-}
-
-func TestExcludeZero_ContainsZero(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		interval Interval
-		want     bool
-	}{
-		{"top with excludeZero", Top().ExcludeZero(), false},
-		{"spans zero with excludeZero", NewInterval(-5, 5).ExcludeZero(), false},
-		{"exactly zero with excludeZero", NewInterval(0, 0).ExcludeZero(), false},
-		{"lo is zero with excludeZero", NewInterval(0, 10).ExcludeZero(), false},
-		{"hi is zero with excludeZero", NewInterval(-10, 0).ExcludeZero(), false},
-		{"positive with excludeZero", NewInterval(1, 10).ExcludeZero(), false},
-		{"negative with excludeZero", NewInterval(-10, -1).ExcludeZero(), false},
-		{"bottom with excludeZero", Bottom().ExcludeZero(), false},
-		// Without excludeZero for contrast
-		{"top without excludeZero", Top(), true},
-		{"spans zero without excludeZero", NewInterval(-5, 5), true},
-		{"exactly zero without excludeZero", NewInterval(0, 0), true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tt.want, tt.interval.ContainsZero())
-		})
-	}
-}
-
-func TestExcludeZero_Structure(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		in   Interval
-		want Interval
-	}{
-		// [0,0] → Bottom (no values left)
-		{"exactly zero becomes Bottom", NewInterval(0, 0), Bottom()},
-
-		// [0, N] → [1, N] (shift Lo past zero)
-		{"lo is zero", NewInterval(0, 10), NewInterval(1, 10)},
-		{"lo is zero single", NewInterval(0, 1), NewInterval(1, 1)},
-
-		// [N, 0] → [N, -1] (shift Hi below zero)
-		{"hi is zero", NewInterval(-10, 0), NewInterval(-10, -1)},
-		{"hi is zero single", NewInterval(-1, 0), NewInterval(-1, -1)},
-
-		// Spans zero but neither bound is zero → flag only, bounds unchanged
-		{"spans zero", NewInterval(-5, 5), NewInterval(-5, 5)},
-		{"wide span", NewInterval(-100, 100), NewInterval(-100, 100)},
-
-		// Doesn't contain zero at all → no structural change
-		{"all positive", NewInterval(1, 10), NewInterval(1, 10)},
-		{"all negative", NewInterval(-10, -1), NewInterval(-10, -1)},
-		{"single positive", NewInterval(7, 7), NewInterval(7, 7)},
-		{"single negative", NewInterval(-3, -3), NewInterval(-3, -3)},
-
-		// Bottom → Bottom
-		{"bottom stays bottom", Bottom(), Bottom()},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.in.ExcludeZero()
-
-			if tt.want.IsBottom {
-				require.True(t, got.IsBottom,
-					"%s: expected Bottom, got %+v", tt.name, got)
-				return
-			}
-
-			require.False(t, got.IsBottom, "%s: unexpected Bottom", tt.name)
-			require.Equal(t, tt.want.Lo, got.Lo, "%s: Lo mismatch", tt.name)
-			require.Equal(t, tt.want.Hi, got.Hi, "%s: Hi mismatch", tt.name)
-			require.False(t, got.ContainsZero(),
-				"%s: result should not contain zero", tt.name)
-		})
-	}
-}
-
-func TestExcludeZero_TopPreservesIsTop(t *testing.T) {
-	t.Parallel()
-
-	// Top.ExcludeZero must remain Top (with flag), not collapse to [0,0].
-	got := Top().ExcludeZero()
-
-	require.True(t, got.IsTop, "ExcludeZero on Top must keep IsTop=true")
-	require.True(t, got.excludeZero, "ExcludeZero on Top must set excludeZero flag")
-	require.False(t, got.ContainsZero(), "Top.ExcludeZero must not contain zero")
-	require.False(t, got.IsBottom, "Top.ExcludeZero must not be Bottom")
-}
-
-func TestDiv_WithExcludedZeroDivisor(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		a    Interval
-		b    Interval
-		want Interval
-	}{
-		// After ExcludeZero, [0,10] becomes [1,10] — safe to divide
-		{"lo was zero, now 1", NewInterval(100, 100), NewInterval(0, 10).ExcludeZero(), NewInterval(10, 100)},
-
-		// After ExcludeZero, [-10,0] becomes [-10,-1] — safe to divide
-		{"hi was zero, now -1", NewInterval(100, 100), NewInterval(-10, 0).ExcludeZero(), NewInterval(-100, -10)},
-
-		// After ExcludeZero, [0,0] becomes Bottom — Div returns Bottom
-		{"zero excluded to Bottom", NewInterval(100, 100), NewInterval(0, 0).ExcludeZero(), Bottom()},
-
-		// Spans zero with flag: [-5,5].ExcludeZero still has Lo=-5, Hi=5
-		// but excludeZero=true. ContainsZero returns false → Div proceeds.
-		// lo = min(100/-5, 100/5) = min(-20, 20) = -20
-		// hi = max(100/-5, 100/5) = max(-20, 20) = 20
-		{"spans zero with flag", NewInterval(100, 100), NewInterval(-5, 5).ExcludeZero(), NewInterval(-20, 20)},
-
-		// Top.ExcludeZero stays Top → checkSpecial returns Top
-		{"top excluded", NewInterval(100, 100), Top().ExcludeZero(), Top()},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.a.Div(tt.b)
-			require.True(t, got.Equals(tt.want),
-				"%s: %+v.Div(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
-		})
-	}
-}
-
-func TestExcludeZero_Join(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name           string
-		a              Interval
-		b              Interval
-		wantContains   bool
-		wantExcludeSet bool
-	}{
-		// Both exclude zero → result excludes zero
-		{"both exclude", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3).ExcludeZero(), false, true},
-		// Only one excludes zero → result does NOT exclude zero
-		{"only lhs excludes", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3), true, false},
-		{"only rhs excludes", NewInterval(-5, 5), NewInterval(-3, 3).ExcludeZero(), true, false},
-		// Neither excludes zero → result does NOT exclude zero
-		{"neither excludes", NewInterval(-5, 5), NewInterval(-3, 3), true, false},
-		// Bottom identity preserves excludeZero
-		{"bottom join excluded", Bottom(), NewInterval(-5, 5).ExcludeZero(), false, true},
-		{"excluded join bottom", NewInterval(-5, 5).ExcludeZero(), Bottom(), false, true},
-		// Top absorbs (Top.Join returns Top, loses excludeZero)
-		{"top join excluded", Top(), NewInterval(-5, 5).ExcludeZero(), true, false},
-		{"excluded join top", NewInterval(-5, 5).ExcludeZero(), Top(), true, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.a.Join(tt.b)
-			require.Equal(t, tt.wantContains, got.ContainsZero(), "ContainsZero mismatch")
-			require.Equal(t, tt.wantExcludeSet, got.excludeZero, "excludeZero flag mismatch")
-		})
-	}
-}
-
-func TestExcludeZero_Meet(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name           string
-		a              Interval
-		b              Interval
-		wantContains   bool
-		wantExcludeSet bool
-	}{
-		// Either excludes zero → result excludes zero
-		{"both exclude", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3).ExcludeZero(), false, true},
-		{"only lhs excludes", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3), false, true},
-		{"only rhs excludes", NewInterval(-5, 5), NewInterval(-3, 3).ExcludeZero(), false, true},
-		// Neither excludes → result does NOT exclude zero
-		{"neither excludes", NewInterval(-5, 5), NewInterval(-3, 3), true, false},
-		// Top identity preserves excludeZero
-		{"top meet excluded", Top(), NewInterval(-5, 5).ExcludeZero(), false, true},
-		{"excluded meet top", NewInterval(-5, 5).ExcludeZero(), Top(), false, true},
-		// Bottom absorbs
-		{"bottom meet excluded", Bottom(), NewInterval(-5, 5).ExcludeZero(), false, false},
-		{"excluded meet bottom", NewInterval(-5, 5).ExcludeZero(), Bottom(), false, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.a.Meet(tt.b)
-			require.Equal(t, tt.wantContains, got.ContainsZero(), "ContainsZero mismatch")
-			require.Equal(t, tt.wantExcludeSet, got.excludeZero, "excludeZero flag mismatch")
-		})
-	}
-}
-
-func TestNeg(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		a    Interval
-		want Interval
-	}{
-		// Normal ranges
-		{"positive range", NewInterval(1, 5), NewInterval(-5, -1)},
-		{"negative range", NewInterval(-5, -1), NewInterval(1, 5)},
-		{"spans zero", NewInterval(-3, 7), NewInterval(-7, 3)},
-		{"single positive", NewInterval(4, 4), NewInterval(-4, -4)},
-		{"single negative", NewInterval(-4, -4), NewInterval(4, 4)},
-		{"zero", NewInterval(0, 0), NewInterval(0, 0)},
-
-		// Asymmetric ranges
-		{"mostly positive", NewInterval(-1, 10), NewInterval(-10, 1)},
-		{"mostly negative", NewInterval(-10, 1), NewInterval(-1, 10)},
-
-		// Extreme values
-		{"max int64", NewInterval(0, math.MaxInt64), NewInterval(-math.MaxInt64, 0)},
-		{"min to zero", NewInterval(math.MinInt64 + 1, 0), NewInterval(0, math.MaxInt64)},
-
-		// Double negation identity: Neg(Neg(x)) == x
-		{"double neg positive", NewInterval(2, 8).Neg(), NewInterval(2, 8)},
-		{"double neg negative", NewInterval(-6, -3).Neg(), NewInterval(-6, -3)},
-		{"double neg spans zero", NewInterval(-4, 5).Neg(), NewInterval(-4, 5)},
-
-		// Special cases
-		{"bottom", Bottom(), Bottom()},
-		{"top", Top(), Top()},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.a.Neg()
-			require.True(t, got.Equals(tt.want), "%s: %+v.Neg() = %+v, want %+v", tt.name, tt.a, got, tt.want)
-		})
-	}
-}
-
-func TestWiden(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		old  Interval
-		new  Interval
-		want Interval
-	}{
-		// Upper bound grew → jump to MaxInt64
-		{"upper grew", NewInterval(1, 1), NewInterval(1, 2), NewInterval(1, math.MaxInt64)},
-		// Lower bound shrank → jump to MinInt64
-		{"lower shrank", NewInterval(0, 5), NewInterval(-1, 5), NewInterval(math.MinInt64, 5)},
-		// Both bounds moved → jump to both extremes
-		{"both moved", NewInterval(0, 5), NewInterval(-1, 6), NewInterval(math.MinInt64, math.MaxInt64)},
-		// No change → fixed point (keep old)
-		{"no change", NewInterval(0, 5), NewInterval(0, 5), NewInterval(0, 5)},
-		// New interval shrank (subset of old) → keep old bounds
-		{"shrank", NewInterval(0, 5), NewInterval(1, 3), NewInterval(0, 5)},
-		// Single point growing up
-		{"single point upper grew", NewInterval(3, 3), NewInterval(3, 4), NewInterval(3, math.MaxInt64)},
-		// Single point growing down
-		{"single point lower shrank", NewInterval(3, 3), NewInterval(2, 3), NewInterval(math.MinInt64, 3)},
-		// Already at extremes → stays at extremes
-		{"already max hi", NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64)},
-		{"already min lo", NewInterval(math.MinInt64, 0), NewInterval(math.MinInt64, 0), NewInterval(math.MinInt64, 0)},
-		{"already full range", NewInterval(math.MinInt64, math.MaxInt64), NewInterval(math.MinInt64, math.MaxInt64), NewInterval(math.MinInt64, math.MaxInt64)},
-
-		// Bottom cases
-		{"old is bottom", Bottom(), NewInterval(1, 5), NewInterval(1, 5)},
-		{"new is bottom", NewInterval(1, 5), Bottom(), NewInterval(1, 5)},
-		{"both bottom", Bottom(), Bottom(), Bottom()},
-
-		// Top cases
-		{"old is top", Top(), NewInterval(1, 5), Top()},
-		{"new is top", NewInterval(1, 5), Top(), Top()},
-		{"both top", Top(), Top(), Top()},
-		{"top and bottom", Top(), Bottom(), Top()},
-		{"bottom and top", Bottom(), Top(), Top()},
-
-		// Negative intervals
-		{"negative upper grew", NewInterval(-10, -5), NewInterval(-10, -3), NewInterval(-10, math.MaxInt64)},
-		{"negative lower shrank", NewInterval(-5, -1), NewInterval(-8, -1), NewInterval(math.MinInt64, -1)},
-		{"negative no change", NewInterval(-10, -5), NewInterval(-10, -5), NewInterval(-10, -5)},
-
-		// Typical loop counter pattern: i starts at 0, increments
-		{"loop counter pass 1", Bottom(), NewInterval(0, 0), NewInterval(0, 0)},
-		{"loop counter pass 2", NewInterval(0, 0), NewInterval(0, 1), NewInterval(0, math.MaxInt64)},
-		{"loop counter pass 3 stable", NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.old.Widen(tt.new)
-			require.True(t, got.Equals(tt.want), "%s: %+v.Widen(%+v) = %+v, want %+v", tt.name, tt.old, tt.new, got, tt.want)
+			got := tt.a.Add(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Add(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
 		})
 	}
 }
@@ -682,6 +179,517 @@ func TestContainsSymmetry(t *testing.T) {
 	}
 }
 
+func TestContainsZero(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		interval Interval
+		want     bool
+	}{
+		{"positive range", NewInterval(1, 10), false},
+		{"negative range", NewInterval(-10, -1), false},
+		{"spans zero", NewInterval(-5, 5), true},
+		{"exactly zero", NewInterval(0, 0), true},
+		{"lo is zero", NewInterval(0, 10), true},
+		{"hi is zero", NewInterval(-10, 0), true},
+		{"single positive", NewInterval(1, 1), false},
+		{"single negative", NewInterval(-1, -1), false},
+		{"top", Top(), true},
+		{"bottom", Bottom(), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, tt.interval.ContainsZero())
+		})
+	}
+}
+
+func TestDiv(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		{"positive ranges", NewInterval(10, 20), NewInterval(2, 5), NewInterval(2, 10)},
+		{"negative dividend", NewInterval(-20, -10), NewInterval(2, 5), NewInterval(-10, -2)},
+		{"negative divisor", NewInterval(10, 20), NewInterval(-5, -2), NewInterval(-10, -2)},
+		{"both negative", NewInterval(-20, -10), NewInterval(-5, -2), NewInterval(2, 10)},
+		{"single points", NewInterval(12, 12), NewInterval(4, 4), NewInterval(3, 3)},
+		{"integer truncation", NewInterval(7, 7), NewInterval(2, 2), NewInterval(3, 3)},
+		{"div by one", NewInterval(3, 7), NewInterval(1, 1), NewInterval(3, 7)},
+
+		// Division by zero cases
+		{"divisor contains zero", NewInterval(1, 10), NewInterval(-1, 1), Top()},
+		{"divisor is zero", NewInterval(1, 10), NewInterval(0, 0), Top()},
+		{"divisor spans zero", NewInterval(1, 10), NewInterval(-5, 5), Top()},
+
+		// Special cases
+		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
+		{"bottom propagates rhs", NewInterval(1, 5), Bottom(), Bottom()},
+		{"top propagates", Top(), NewInterval(1, 5), Top()},
+		{"top propagates rhs", NewInterval(1, 5), Top(), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Div(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Div(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestDiv_WithExcludedZeroDivisor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// After ExcludeZero, [0,10] becomes [1,10] — safe to divide
+		{"lo was zero, now 1", NewInterval(100, 100), NewInterval(0, 10).ExcludeZero(), NewInterval(10, 100)},
+
+		// After ExcludeZero, [-10,0] becomes [-10,-1] — safe to divide
+		{"hi was zero, now -1", NewInterval(100, 100), NewInterval(-10, 0).ExcludeZero(), NewInterval(-100, -10)},
+
+		// After ExcludeZero, [0,0] becomes Bottom — Div returns Bottom
+		{"zero excluded to Bottom", NewInterval(100, 100), NewInterval(0, 0).ExcludeZero(), Bottom()},
+
+		// Spans zero with flag: [-5,5].ExcludeZero still has Lo=-5, Hi=5
+		// but excludeZero=true. ContainsZero returns false → Div proceeds.
+		// lo = min(100/-5, 100/5) = min(-20, 20) = -20
+		// hi = max(100/-5, 100/5) = max(-20, 20) = 20
+		{"spans zero with flag", NewInterval(100, 100), NewInterval(-5, 5).ExcludeZero(), NewInterval(-20, 20)},
+
+		// Top.ExcludeZero stays Top → checkSpecial returns Top
+		{"top excluded", NewInterval(100, 100), Top().ExcludeZero(), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Div(tt.b)
+			require.True(t, got.Equals(tt.want),
+				"%s: %+v.Div(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestEquals(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want bool
+	}{
+		// Equal cases
+		{"same range", NewInterval(1, 10), NewInterval(1, 10), true},
+		{"same single point", NewInterval(5, 5), NewInterval(5, 5), true},
+		{"both bottom", Bottom(), Bottom(), true},
+		{"both top", Top(), Top(), true},
+		{"both zero", NewInterval(0, 0), NewInterval(0, 0), true},
+
+		// Not equal cases
+		{"different lo", NewInterval(1, 10), NewInterval(2, 10), false},
+		{"different hi", NewInterval(1, 10), NewInterval(1, 9), false},
+		{"different both", NewInterval(1, 5), NewInterval(6, 10), false},
+		{"bottom vs normal", Bottom(), NewInterval(1, 5), false},
+		{"normal vs bottom", NewInterval(1, 5), Bottom(), false},
+		{"top vs normal", Top(), NewInterval(1, 5), false},
+		{"normal vs top", NewInterval(1, 5), Top(), false},
+		{"top vs bottom", Top(), Bottom(), false},
+		{"bottom vs top", Bottom(), Top(), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, tt.a.Equals(tt.b))
+		})
+	}
+}
+
+func TestExcludeZero_ContainsZero(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		interval Interval
+		want     bool
+	}{
+		{"top with excludeZero", Top().ExcludeZero(), false},
+		{"spans zero with excludeZero", NewInterval(-5, 5).ExcludeZero(), false},
+		{"exactly zero with excludeZero", NewInterval(0, 0).ExcludeZero(), false},
+		{"lo is zero with excludeZero", NewInterval(0, 10).ExcludeZero(), false},
+		{"hi is zero with excludeZero", NewInterval(-10, 0).ExcludeZero(), false},
+		{"positive with excludeZero", NewInterval(1, 10).ExcludeZero(), false},
+		{"negative with excludeZero", NewInterval(-10, -1).ExcludeZero(), false},
+		{"bottom with excludeZero", Bottom().ExcludeZero(), false},
+		// Without excludeZero for contrast
+		{"top without excludeZero", Top(), true},
+		{"spans zero without excludeZero", NewInterval(-5, 5), true},
+		{"exactly zero without excludeZero", NewInterval(0, 0), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, tt.interval.ContainsZero())
+		})
+	}
+}
+
+func TestExcludeZero_Join(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		a              Interval
+		b              Interval
+		wantContains   bool
+		wantExcludeSet bool
+	}{
+		// Both exclude zero → result excludes zero
+		{"both exclude", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3).ExcludeZero(), false, true},
+		// Only one excludes zero → result does NOT exclude zero
+		{"only lhs excludes", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3), true, false},
+		{"only rhs excludes", NewInterval(-5, 5), NewInterval(-3, 3).ExcludeZero(), true, false},
+		// Neither excludes zero → result does NOT exclude zero
+		{"neither excludes", NewInterval(-5, 5), NewInterval(-3, 3), true, false},
+		// Bottom identity preserves excludeZero
+		{"bottom join excluded", Bottom(), NewInterval(-5, 5).ExcludeZero(), false, true},
+		{"excluded join bottom", NewInterval(-5, 5).ExcludeZero(), Bottom(), false, true},
+		// Top absorbs (Top.Join returns Top, loses excludeZero)
+		{"top join excluded", Top(), NewInterval(-5, 5).ExcludeZero(), true, false},
+		{"excluded join top", NewInterval(-5, 5).ExcludeZero(), Top(), true, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Join(tt.b)
+			require.Equal(t, tt.wantContains, got.ContainsZero(), "ContainsZero mismatch")
+			require.Equal(t, tt.wantExcludeSet, got.excludeZero, "excludeZero flag mismatch")
+		})
+	}
+}
+
+func TestExcludeZero_Meet(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		a              Interval
+		b              Interval
+		wantContains   bool
+		wantExcludeSet bool
+	}{
+		// Either excludes zero → result excludes zero
+		{"both exclude", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3).ExcludeZero(), false, true},
+		{"only lhs excludes", NewInterval(-5, 5).ExcludeZero(), NewInterval(-3, 3), false, true},
+		{"only rhs excludes", NewInterval(-5, 5), NewInterval(-3, 3).ExcludeZero(), false, true},
+		// Neither excludes → result does NOT exclude zero
+		{"neither excludes", NewInterval(-5, 5), NewInterval(-3, 3), true, false},
+		// Top identity preserves excludeZero
+		{"top meet excluded", Top(), NewInterval(-5, 5).ExcludeZero(), false, true},
+		{"excluded meet top", NewInterval(-5, 5).ExcludeZero(), Top(), false, true},
+		// Bottom absorbs
+		{"bottom meet excluded", Bottom(), NewInterval(-5, 5).ExcludeZero(), false, false},
+		{"excluded meet bottom", NewInterval(-5, 5).ExcludeZero(), Bottom(), false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Meet(tt.b)
+			require.Equal(t, tt.wantContains, got.ContainsZero(), "ContainsZero mismatch")
+			require.Equal(t, tt.wantExcludeSet, got.excludeZero, "excludeZero flag mismatch")
+		})
+	}
+}
+
+func TestExcludeZero_Structure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   Interval
+		want Interval
+	}{
+		// [0,0] → Bottom (no values left)
+		{"exactly zero becomes Bottom", NewInterval(0, 0), Bottom()},
+
+		// [0, N] → [1, N] (shift Lo past zero)
+		{"lo is zero", NewInterval(0, 10), NewInterval(1, 10)},
+		{"lo is zero single", NewInterval(0, 1), NewInterval(1, 1)},
+
+		// [N, 0] → [N, -1] (shift Hi below zero)
+		{"hi is zero", NewInterval(-10, 0), NewInterval(-10, -1)},
+		{"hi is zero single", NewInterval(-1, 0), NewInterval(-1, -1)},
+
+		// Spans zero but neither bound is zero → flag only, bounds unchanged
+		{"spans zero", NewInterval(-5, 5), NewInterval(-5, 5)},
+		{"wide span", NewInterval(-100, 100), NewInterval(-100, 100)},
+
+		// Doesn't contain zero at all → no structural change
+		{"all positive", NewInterval(1, 10), NewInterval(1, 10)},
+		{"all negative", NewInterval(-10, -1), NewInterval(-10, -1)},
+		{"single positive", NewInterval(7, 7), NewInterval(7, 7)},
+		{"single negative", NewInterval(-3, -3), NewInterval(-3, -3)},
+
+		// Bottom → Bottom
+		{"bottom stays bottom", Bottom(), Bottom()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.in.ExcludeZero()
+
+			if tt.want.IsBottom {
+				require.True(t, got.IsBottom,
+					"%s: expected Bottom, got %+v", tt.name, got)
+				return
+			}
+
+			require.False(t, got.IsBottom, "%s: unexpected Bottom", tt.name)
+			require.Equal(t, tt.want.Lo, got.Lo, "%s: Lo mismatch", tt.name)
+			require.Equal(t, tt.want.Hi, got.Hi, "%s: Hi mismatch", tt.name)
+			require.False(t, got.ContainsZero(),
+				"%s: result should not contain zero", tt.name)
+		})
+	}
+}
+
+func TestExcludeZero_TopPreservesIsTop(t *testing.T) {
+	t.Parallel()
+
+	// Top.ExcludeZero must remain Top (with flag), not collapse to [0,0].
+	got := Top().ExcludeZero()
+
+	require.True(t, got.IsTop, "ExcludeZero on Top must keep IsTop=true")
+	require.True(t, got.excludeZero, "ExcludeZero on Top must set excludeZero flag")
+	require.False(t, got.ContainsZero(), "Top.ExcludeZero must not contain zero")
+	require.False(t, got.IsBottom, "Top.ExcludeZero must not be Bottom")
+}
+
+func TestJoin(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// Normal cases
+		{"overlapping", NewInterval(1, 5), NewInterval(3, 8), NewInterval(1, 8)},
+		{"disjoint", NewInterval(1, 3), NewInterval(7, 10), NewInterval(1, 10)},
+		{"adjacent", NewInterval(1, 5), NewInterval(6, 10), NewInterval(1, 10)},
+		{"identical", NewInterval(3, 7), NewInterval(3, 7), NewInterval(3, 7)},
+		{"one contains other", NewInterval(1, 10), NewInterval(3, 7), NewInterval(1, 10)},
+		{"negative ranges", NewInterval(-10, -5), NewInterval(-3, -1), NewInterval(-10, -1)},
+		{"spans zero", NewInterval(-5, 0), NewInterval(0, 5), NewInterval(-5, 5)},
+		{"single points", NewInterval(3, 3), NewInterval(7, 7), NewInterval(3, 7)},
+
+		// Bottom identity
+		{"bottom join normal", Bottom(), NewInterval(1, 5), NewInterval(1, 5)},
+		{"normal join bottom", NewInterval(1, 5), Bottom(), NewInterval(1, 5)},
+		{"bottom join bottom", Bottom(), Bottom(), Bottom()},
+
+		// Top absorbs
+		{"top join normal", Top(), NewInterval(1, 5), Top()},
+		{"normal join top", NewInterval(1, 5), Top(), Top()},
+		{"top join top", Top(), Top(), Top()},
+		{"top join bottom", Top(), Bottom(), Top()},
+		{"bottom join top", Bottom(), Top(), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Join(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Join(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestMeet(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// Normal cases
+		{"overlapping", NewInterval(1, 10), NewInterval(5, 20), NewInterval(5, 10)},
+		{"one contains other", NewInterval(1, 10), NewInterval(3, 7), NewInterval(3, 7)},
+		{"identical", NewInterval(3, 7), NewInterval(3, 7), NewInterval(3, 7)},
+		{"single overlap point", NewInterval(1, 5), NewInterval(5, 10), NewInterval(5, 5)},
+		{"negative overlap", NewInterval(-10, -3), NewInterval(-7, -1), NewInterval(-7, -3)},
+
+		// Empty intersection returns bottom
+		{"disjoint", NewInterval(1, 5), NewInterval(10, 20), Bottom()},
+		{"disjoint adjacent", NewInterval(1, 5), NewInterval(6, 10), Bottom()},
+		{"disjoint negative", NewInterval(-10, -5), NewInterval(1, 5), Bottom()},
+
+		// Top identity
+		{"top meet normal", Top(), NewInterval(1, 5), NewInterval(1, 5)},
+		{"normal meet top", NewInterval(1, 5), Top(), NewInterval(1, 5)},
+		{"top meet top", Top(), Top(), Top()},
+
+		// Bottom absorbs
+		{"bottom meet normal", Bottom(), NewInterval(1, 5), Bottom()},
+		{"normal meet bottom", NewInterval(1, 5), Bottom(), Bottom()},
+		{"bottom meet bottom", Bottom(), Bottom(), Bottom()},
+		{"top meet bottom", Top(), Bottom(), Bottom()},
+		{"bottom meet top", Bottom(), Top(), Bottom()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Meet(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Meet(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestMul(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		{"positive ranges", NewInterval(2, 4), NewInterval(3, 5), NewInterval(6, 20)},
+		{"negative times positive", NewInterval(-3, -1), NewInterval(2, 4), NewInterval(-12, -2)},
+		{"negative times negative", NewInterval(-4, -2), NewInterval(-3, -1), NewInterval(2, 12)},
+		{"spans zero lhs", NewInterval(-2, 3), NewInterval(1, 4), NewInterval(-8, 12)},
+		{"spans zero both", NewInterval(-2, 3), NewInterval(-1, 4), NewInterval(-8, 12)},
+		{"single points", NewInterval(3, 3), NewInterval(7, 7), NewInterval(21, 21)},
+		{"mul by zero interval", NewInterval(1, 5), NewInterval(0, 0), NewInterval(0, 0)},
+		{"mul by one", NewInterval(3, 7), NewInterval(1, 1), NewInterval(3, 7)},
+		{"negative spans zero", NewInterval(-3, 2), NewInterval(-4, 1), NewInterval(-8, 12)},
+		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
+		{"top propagates", Top(), NewInterval(1, 5), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Mul(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Mul(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestMul_Overflow(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		// MaxInt64 * 2 overflows
+		{"max times two wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(2, 2), NewInterval(-2, -2)},
+		// MinInt64 * -1 overflows (result is MinInt64 due to twos complement)
+		{"min times neg one wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(-1, -1), NewInterval(math.MinInt64, math.MinInt64)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Mul(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Mul(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestNeg(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		want Interval
+	}{
+		// Normal ranges
+		{"positive range", NewInterval(1, 5), NewInterval(-5, -1)},
+		{"negative range", NewInterval(-5, -1), NewInterval(1, 5)},
+		{"spans zero", NewInterval(-3, 7), NewInterval(-7, 3)},
+		{"single positive", NewInterval(4, 4), NewInterval(-4, -4)},
+		{"single negative", NewInterval(-4, -4), NewInterval(4, 4)},
+		{"zero", NewInterval(0, 0), NewInterval(0, 0)},
+
+		// Asymmetric ranges
+		{"mostly positive", NewInterval(-1, 10), NewInterval(-10, 1)},
+		{"mostly negative", NewInterval(-10, 1), NewInterval(-1, 10)},
+
+		// Extreme values
+		{"max int64", NewInterval(0, math.MaxInt64), NewInterval(-math.MaxInt64, 0)},
+		{"min to zero", NewInterval(math.MinInt64+1, 0), NewInterval(0, math.MaxInt64)},
+
+		// Double negation identity: Neg(Neg(x)) == x
+		{"double neg positive", NewInterval(2, 8).Neg(), NewInterval(2, 8)},
+		{"double neg negative", NewInterval(-6, -3).Neg(), NewInterval(-6, -3)},
+		{"double neg spans zero", NewInterval(-4, 5).Neg(), NewInterval(-4, 5)},
+
+		// Special cases
+		{"bottom", Bottom(), Bottom()},
+		{"top", Top(), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Neg()
+			require.True(t, got.Equals(tt.want), "%s: %+v.Neg() = %+v, want %+v", tt.name, tt.a, got, tt.want)
+		})
+	}
+}
+
+func TestNeg_MinInt64(t *testing.T) {
+	t.Parallel()
+	// Neg of MinInt64 overflows: -MinInt64 == MinInt64 in twos complement
+	// This creates an inverted interval NewInterval(-MinInt64, -MinInt64)
+	// = NewInterval(MinInt64, MinInt64) — but wait, -(-9223372036854775808) = -9223372036854775808
+	got := NewInterval(math.MinInt64, math.MinInt64).Neg()
+	// -Hi = -MinInt64 = MinInt64 (overflow), -Lo = -MinInt64 = MinInt64
+	// So NewInterval(MinInt64, MinInt64) — valid single-point
+	require.Equal(t, int64(math.MinInt64), got.Lo)
+	require.Equal(t, int64(math.MinInt64), got.Hi)
+}
+
+func TestNewInterval(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		lo   int64
+		hi   int64
+		want Interval
+	}{
+		{"normal range", 1, 10, Interval{Lo: 1, Hi: 10}},
+		{"single point", 5, 5, Interval{Lo: 5, Hi: 5}},
+		{"negative range", -10, -1, Interval{Lo: -10, Hi: -1}},
+		{"spans zero", -5, 5, Interval{Lo: -5, Hi: 5}},
+		{"zero to zero", 0, 0, Interval{Lo: 0, Hi: 0}},
+		{"inverted returns bottom", 10, 5, Bottom()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := NewInterval(tt.lo, tt.hi)
+			require.True(t, got.Equals(tt.want), "NewInterval(%d, %d) = %+v, want %+v", tt.lo, tt.hi, got, tt.want)
+		})
+	}
+}
+
 func TestRem(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -744,7 +752,7 @@ func TestRem(t *testing.T) {
 	}
 }
 
-func TestAdd_Overflow(t *testing.T) {
+func TestRem_EdgeCases(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -752,20 +760,48 @@ func TestAdd_Overflow(t *testing.T) {
 		b    Interval
 		want Interval
 	}{
-		// int64 overflow: MaxInt64 + MaxInt64 wraps to negative
-		{"max plus max wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(-2, -2)},
-		// int64 underflow: MinInt64 + MinInt64 wraps to 0
-		{"min plus min wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(math.MinInt64, math.MinInt64), NewInterval(0, 0)},
-		// MaxInt64 + 1 overflows
-		{"max plus one wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(1, 1), NewInterval(math.MinInt64, math.MinInt64)},
-		// MinInt64 + (-1) underflows
-		{"min plus neg one wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(-1, -1), NewInterval(math.MaxInt64, math.MaxInt64)},
+		// Rem by [1,1] → always [0,0]
+		{"rem by one", NewInterval(-100, 100), NewInterval(1, 1), NewInterval(0, 0)},
+		// Rem with asymmetric divisor [-2,5] → M=5, bound=[-4,4]
+		{"asymmetric divisor", NewInterval(0, 100), NewInterval(-2, 5), NewInterval(-4, 4)},
+		// Top lhs, bottom rhs → bottom
+		{"top lhs bottom rhs", Top(), Bottom(), Bottom()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := tt.a.Add(tt.b)
-			require.True(t, got.Equals(tt.want), "%s: %+v.Add(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+			got := tt.a.Rem(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Rem(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+		})
+	}
+}
+
+func TestSub(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		a    Interval
+		b    Interval
+		want Interval
+	}{
+		{"positive ranges", NewInterval(5, 10), NewInterval(1, 3), NewInterval(2, 9)},
+		{"same interval", NewInterval(3, 7), NewInterval(3, 7), NewInterval(-4, 4)},
+		{"single points", NewInterval(10, 10), NewInterval(3, 3), NewInterval(7, 7)},
+		{"negative ranges", NewInterval(-5, -1), NewInterval(-3, -2), NewInterval(-3, 2)},
+		{"mixed signs", NewInterval(-5, 5), NewInterval(1, 3), NewInterval(-8, 4)},
+		{"sub zero", NewInterval(1, 5), NewInterval(0, 0), NewInterval(1, 5)},
+		{"result spans zero", NewInterval(1, 5), NewInterval(2, 8), NewInterval(-7, 3)},
+		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
+		{"bottom propagates rhs", NewInterval(1, 5), Bottom(), Bottom()},
+		{"top propagates", Top(), NewInterval(1, 5), Top()},
+		{"top propagates rhs", NewInterval(1, 5), Top(), Top()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.a.Sub(tt.b)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Sub(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
 		})
 	}
 }
@@ -792,97 +828,61 @@ func TestSub_Overflow(t *testing.T) {
 	}
 }
 
-func TestMul_Overflow(t *testing.T) {
+func TestWiden(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
-		a    Interval
-		b    Interval
+		old  Interval
+		new  Interval
 		want Interval
 	}{
-		// MaxInt64 * 2 overflows
-		{"max times two wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(2, 2), NewInterval(-2, -2)},
-		// MinInt64 * -1 overflows (result is MinInt64 due to twos complement)
-		{"min times neg one wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(-1, -1), NewInterval(math.MinInt64, math.MinInt64)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.a.Mul(tt.b)
-			require.True(t, got.Equals(tt.want), "%s: %+v.Mul(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
-		})
-	}
-}
+		// Upper bound grew → jump to MaxInt64
+		{"upper grew", NewInterval(1, 1), NewInterval(1, 2), NewInterval(1, math.MaxInt64)},
+		// Lower bound shrank → jump to MinInt64
+		{"lower shrank", NewInterval(0, 5), NewInterval(-1, 5), NewInterval(math.MinInt64, 5)},
+		// Both bounds moved → jump to both extremes
+		{"both moved", NewInterval(0, 5), NewInterval(-1, 6), NewInterval(math.MinInt64, math.MaxInt64)},
+		// No change → fixed point (keep old)
+		{"no change", NewInterval(0, 5), NewInterval(0, 5), NewInterval(0, 5)},
+		// New interval shrank (subset of old) → keep old bounds
+		{"shrank", NewInterval(0, 5), NewInterval(1, 3), NewInterval(0, 5)},
+		// Single point growing up
+		{"single point upper grew", NewInterval(3, 3), NewInterval(3, 4), NewInterval(3, math.MaxInt64)},
+		// Single point growing down
+		{"single point lower shrank", NewInterval(3, 3), NewInterval(2, 3), NewInterval(math.MinInt64, 3)},
+		// Already at extremes → stays at extremes
+		{"already max hi", NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64)},
+		{"already min lo", NewInterval(math.MinInt64, 0), NewInterval(math.MinInt64, 0), NewInterval(math.MinInt64, 0)},
+		{"already full range", NewInterval(math.MinInt64, math.MaxInt64), NewInterval(math.MinInt64, math.MaxInt64), NewInterval(math.MinInt64, math.MaxInt64)},
 
-func TestNeg_MinInt64(t *testing.T) {
-	t.Parallel()
-	// Neg of MinInt64 overflows: -MinInt64 == MinInt64 in twos complement
-	// This creates an inverted interval NewInterval(-MinInt64, -MinInt64)
-	// = NewInterval(MinInt64, MinInt64) — but wait, -(-9223372036854775808) = -9223372036854775808
-	got := NewInterval(math.MinInt64, math.MinInt64).Neg()
-	// -Hi = -MinInt64 = MinInt64 (overflow), -Lo = -MinInt64 = MinInt64
-	// So NewInterval(MinInt64, MinInt64) — valid single-point
-	require.Equal(t, int64(math.MinInt64), got.Lo)
-	require.Equal(t, int64(math.MinInt64), got.Hi)
-}
+		// Bottom cases
+		{"old is bottom", Bottom(), NewInterval(1, 5), NewInterval(1, 5)},
+		{"new is bottom", NewInterval(1, 5), Bottom(), NewInterval(1, 5)},
+		{"both bottom", Bottom(), Bottom(), Bottom()},
 
-func TestRem_EdgeCases(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		a    Interval
-		b    Interval
-		want Interval
-	}{
-		// Rem by [1,1] → always [0,0]
-		{"rem by one", NewInterval(-100, 100), NewInterval(1, 1), NewInterval(0, 0)},
-		// Rem with asymmetric divisor [-2,5] → M=5, bound=[-4,4]
-		{"asymmetric divisor", NewInterval(0, 100), NewInterval(-2, 5), NewInterval(-4, 4)},
-		// Top lhs, bottom rhs → bottom
-		{"top lhs bottom rhs", Top(), Bottom(), Bottom()},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.a.Rem(tt.b)
-			require.True(t, got.Equals(tt.want), "%s: %+v.Rem(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
-		})
-	}
-}
+		// Top cases
+		{"old is top", Top(), NewInterval(1, 5), Top()},
+		{"new is top", NewInterval(1, 5), Top(), Top()},
+		{"both top", Top(), Top(), Top()},
+		{"top and bottom", Top(), Bottom(), Top()},
+		{"bottom and top", Bottom(), Top(), Top()},
 
-func TestDiv(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		a    Interval
-		b    Interval
-		want Interval
-	}{
-		{"positive ranges", NewInterval(10, 20), NewInterval(2, 5), NewInterval(2, 10)},
-		{"negative dividend", NewInterval(-20, -10), NewInterval(2, 5), NewInterval(-10, -2)},
-		{"negative divisor", NewInterval(10, 20), NewInterval(-5, -2), NewInterval(-10, -2)},
-		{"both negative", NewInterval(-20, -10), NewInterval(-5, -2), NewInterval(2, 10)},
-		{"single points", NewInterval(12, 12), NewInterval(4, 4), NewInterval(3, 3)},
-		{"integer truncation", NewInterval(7, 7), NewInterval(2, 2), NewInterval(3, 3)},
-		{"div by one", NewInterval(3, 7), NewInterval(1, 1), NewInterval(3, 7)},
+		// Negative intervals
+		{"negative upper grew", NewInterval(-10, -5), NewInterval(-10, -3), NewInterval(-10, math.MaxInt64)},
+		{"negative lower shrank", NewInterval(-5, -1), NewInterval(-8, -1), NewInterval(math.MinInt64, -1)},
+		{"negative no change", NewInterval(-10, -5), NewInterval(-10, -5), NewInterval(-10, -5)},
 
-		// Division by zero cases
-		{"divisor contains zero", NewInterval(1, 10), NewInterval(-1, 1), Top()},
-		{"divisor is zero", NewInterval(1, 10), NewInterval(0, 0), Top()},
-		{"divisor spans zero", NewInterval(1, 10), NewInterval(-5, 5), Top()},
-
-		// Special cases
-		{"bottom propagates", Bottom(), NewInterval(1, 5), Bottom()},
-		{"bottom propagates rhs", NewInterval(1, 5), Bottom(), Bottom()},
-		{"top propagates", Top(), NewInterval(1, 5), Top()},
-		{"top propagates rhs", NewInterval(1, 5), Top(), Top()},
+		// Typical loop counter pattern: i starts at 0, increments
+		{"loop counter pass 1", Bottom(), NewInterval(0, 0), NewInterval(0, 0)},
+		{"loop counter pass 2", NewInterval(0, 0), NewInterval(0, 1), NewInterval(0, math.MaxInt64)},
+		{"loop counter pass 3 stable", NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64), NewInterval(0, math.MaxInt64)},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := tt.a.Div(tt.b)
-			require.True(t, got.Equals(tt.want), "%s: %+v.Div(%+v) = %+v, want %+v", tt.name, tt.a, tt.b, got, tt.want)
+			got := tt.old.Widen(tt.new)
+			require.True(t, got.Equals(tt.want), "%s: %+v.Widen(%+v) = %+v, want %+v", tt.name, tt.old, tt.new, got, tt.want)
 		})
 	}
 }

@@ -6,14 +6,22 @@ import (
 	"time"
 )
 
+func NewProgress() *Progress {
+	return &Progress{start: time.Now()}
+}
+
 // Progress writes phase and per-package progress to stderr.
 // nil-safe: all methods are no-ops on a nil receiver.
 type Progress struct {
 	start time.Time
 }
 
-func NewProgress() *Progress {
-	return &Progress{start: time.Now()}
+// Done prints the final summary line.
+func (p *Progress) Done() {
+	if p == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\r\033[2K\033[37mAnalysis complete (%s)\033[0m\n", time.Since(p.start).Round(time.Millisecond))
 }
 
 // Phase prints a phase start message. Returns a function to call when the phase is done.
@@ -34,12 +42,4 @@ func (p *Progress) Pkg(current, total int, pkgPath string) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "\r\033[2K\033[37mAnalyzing [%d/%d] %s...\033[0m", current, total, pkgPath)
-}
-
-// Done prints the final summary line.
-func (p *Progress) Done() {
-	if p == nil {
-		return
-	}
-	fmt.Fprintf(os.Stderr, "\r\033[2K\033[37mAnalysis complete (%s)\033[0m\n", time.Since(p.start).Round(time.Millisecond))
 }

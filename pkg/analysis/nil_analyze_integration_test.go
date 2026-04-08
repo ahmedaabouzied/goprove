@@ -12,7 +12,6 @@ import (
 // ===========================================================================
 // NilAnalyzer.Analyze integration tests — full end-to-end flow
 // ===========================================================================
-
 // TestNilAnalyze runs the full nil analysis pipeline (worklist → check pass)
 // on inline Go source and verifies findings.
 func TestNilAnalyze(t *testing.T) {
@@ -390,212 +389,6 @@ func TestNilAnalyze(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// NilAnalyzer.Analyze against testdata fixtures (real packages)
-// ===========================================================================
-
-// TestNilAnalyze_Testdata runs the nil analyzer against testdata/nilderef.go
-// fixtures and verifies expected findings per function.
-func TestNilAnalyze_Testdata(t *testing.T) {
-	t.Parallel()
-
-	_, pkgs, err := loader.Load("../../pkg/testdata")
-	require.NoError(t, err)
-	require.NotEmpty(t, pkgs)
-	pkg := pkgs[0]
-
-	tests := []struct {
-		fnName   string
-		wantLen  int
-		severity analysis.Severity
-		message  string
-	}{
-		// Proven bugs
-		{"DerefNilLiteral", 1, analysis.Bug, "nil dereference"},
-		{"FieldAccessOnNil", 1, analysis.Bug, "nil dereference"},
-
-		// Warnings
-		{"DerefParam", 1, analysis.Warning, "possible nil dereference"},
-		// MethodCallOnParam uses interface invoke — now checked.
-		{"MethodCallOnParam", 1, analysis.Warning, "possible nil dereference"},
-
-		// Safe — no findings
-		{"DerefAfterCheck", 0, 0, ""},
-		{"DerefNew", 0, 0, ""},
-		{"AllocNew", 0, 0, ""},
-		{"AllocAddr", 0, 0, ""},
-		{"MakeMapFixture", 0, 0, ""},
-		{"MakeMapHintFixture", 0, 0, ""},
-		{"MakeChanFixture", 0, 0, ""},
-		{"MakeChanBufFixture", 0, 0, ""},
-		{"RefineNotNil", 0, 0, ""},
-		{"RefineEqlNil", 0, 0, ""},
-		{"RefineNilOnLeft", 0, 0, ""},
-		{"RefineInterface", 0, 0, ""},
-		{"RefineSlice", 0, 0, ""},
-		{"MakeInterfaceFixture", 0, 0, ""},
-		{"MakeInterfaceNilPtrFixture", 0, 0, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.fnName, func(t *testing.T) {
-			t.Parallel()
-
-			var fn *ssa.Function
-			for _, member := range pkg.Members {
-				f, ok := member.(*ssa.Function)
-				if ok && f.Name() == tt.fnName {
-					fn = f
-					break
-				}
-			}
-			require.NotNil(t, fn, "function %s not found in testdata", tt.fnName)
-
-			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-			findings := analyzer.Analyze(fn)
-
-			require.Len(t, findings, tt.wantLen,
-				"%s: expected %d findings, got %d", tt.fnName, tt.wantLen, len(findings))
-
-			if tt.wantLen > 0 {
-				require.Equal(t, tt.severity, findings[0].Severity,
-					"%s: wrong severity", tt.fnName)
-				require.Contains(t, findings[0].Message, tt.message,
-					"%s: wrong message", tt.fnName)
-			}
-		})
-	}
-}
-
-// ===========================================================================
-// Edge cases and robustness
-// ===========================================================================
-
-// TestNilAnalyze_ExternalFunction tests that a function with no body
-// (external/assembly-backed) does not panic and returns nil.
-func TestNilAnalyze_ExternalFunction(t *testing.T) {
-	t.Parallel()
-
-	_, pkgs, err := loader.Load("../../pkg/testdata")
-	require.NoError(t, err)
-	require.NotEmpty(t, pkgs)
-
-	// Find any function that has no blocks (init functions or stubs).
-	// If none exist, create one synthetically via buildSSA with an
-	// empty function that the compiler might optimize to no blocks.
-	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-
-	// Use Double — it has blocks. Test that a non-pointer function
-	// produces no nil findings.
-	var fn *ssa.Function
-	for _, member := range pkgs[0].Members {
-		f, ok := member.(*ssa.Function)
-		if ok && f.Name() == "Double" {
-			fn = f
-			break
-		}
-	}
-	require.NotNil(t, fn)
-
-	findings := analyzer.Analyze(fn)
-	require.Empty(t, findings, "Double(x int) should have no nil findings")
-}
-
-// TestNilAnalyze_EmptyFunction tests an empty function body.
-func TestNilAnalyze_EmptyFunction(t *testing.T) {
-	t.Parallel()
-
-	ssaPkg := buildSSA(t, `
-		package example
-
-		func empty() {}
-	`)
-
-	var fn *ssa.Function
-	for _, member := range ssaPkg.Members {
-		f, ok := member.(*ssa.Function)
-		if ok && f.Name() == "empty" {
-			fn = f
-			break
-		}
-	}
-	require.NotNil(t, fn)
-
-	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-	findings := analyzer.Analyze(fn)
-	require.Empty(t, findings)
-}
-
-// TestNilAnalyze_MultiplePointerParams tests a function with multiple
-// pointer parameters — each should independently warn.
-func TestNilAnalyze_MultiplePointerParams(t *testing.T) {
-	t.Parallel()
-
-	ssaPkg := buildSSA(t, `
-		package example
-
-		func multiPtr(a, b, c *int) int {
-			return *a + *b + *c
-		}
-	`)
-
-	var fn *ssa.Function
-	for _, member := range ssaPkg.Members {
-		f, ok := member.(*ssa.Function)
-		if ok && f.Name() == "multiPtr" {
-			fn = f
-			break
-		}
-	}
-	require.NotNil(t, fn)
-
-	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-	findings := analyzer.Analyze(fn)
-	require.Len(t, findings, 3, "each of the 3 pointer params should produce a warning")
-
-	for _, f := range findings {
-		require.Equal(t, analysis.Warning, f.Severity)
-		require.Contains(t, f.Message, "possible nil dereference")
-	}
-}
-
-// TestNilAnalyze_LoopWithNilCheck tests that a nil check inside a loop
-// is handled correctly by the worklist (convergence).
-func TestNilAnalyze_LoopWithNilCheck(t *testing.T) {
-	t.Parallel()
-
-	ssaPkg := buildSSA(t, `
-		package example
-
-		func walkSlice(ptrs []*int) int {
-			sum := 0
-			for i := 0; i < len(ptrs); i++ {
-				p := ptrs[i]
-				if p != nil {
-					sum += *p
-				}
-			}
-			return sum
-		}
-	`)
-
-	var fn *ssa.Function
-	for _, member := range ssaPkg.Members {
-		f, ok := member.(*ssa.Function)
-		if ok && f.Name() == "walkSlice" {
-			fn = f
-			break
-		}
-	}
-	require.NotNil(t, fn)
-
-	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-	findings := analyzer.Analyze(fn)
-	// p is checked with != nil before dereference — should be safe.
-	require.Empty(t, findings,
-		"loop with nil check should have no findings")
-}
-
 // TestNilAnalyze_ConditionalAssignment tests that conditional nil/non-nil
 // assignment through if/else produces MaybeNil at the join point.
 func TestNilAnalyze_ConditionalAssignment(t *testing.T) {
@@ -633,114 +426,11 @@ func TestNilAnalyze_ConditionalAssignment(t *testing.T) {
 	require.Contains(t, findings[0].Message, "possible nil dereference")
 }
 
-// TestNilAnalyze_NestedNilCheck tests nested nil checks on double pointers.
-func TestNilAnalyze_NestedNilCheck(t *testing.T) {
-	t.Parallel()
-
-	ssaPkg := buildSSA(t, `
-		package example
-
-		func nestedCheck(pp **int) int {
-			if pp != nil {
-				p := *pp
-				if p != nil {
-					return *p
-				}
-			}
-			return 0
-		}
-	`)
-
-	var fn *ssa.Function
-	for _, member := range ssaPkg.Members {
-		f, ok := member.(*ssa.Function)
-		if ok && f.Name() == "nestedCheck" {
-			fn = f
-			break
-		}
-	}
-	require.NotNil(t, fn)
-
-	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-	findings := analyzer.Analyze(fn)
-	require.Empty(t, findings,
-		"nested nil checks should prove safety for both levels")
-}
-
-// TestNilAnalyze_ReturnNew tests that returning new(T) and immediately
-// dereferencing is safe.
-func TestNilAnalyze_ReturnNew(t *testing.T) {
-	t.Parallel()
-
-	ssaPkg := buildSSA(t, `
-		package example
-
-		func returnNew() int {
-			p := new(int)
-			*p = 100
-			return *p
-		}
-	`)
-
-	var fn *ssa.Function
-	for _, member := range ssaPkg.Members {
-		f, ok := member.(*ssa.Function)
-		if ok && f.Name() == "returnNew" {
-			fn = f
-			break
-		}
-	}
-	require.NotNil(t, fn)
-
-	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-	findings := analyzer.Analyze(fn)
-	require.Empty(t, findings)
-}
-
-// TestNilAnalyze_MakeInterfaceNilPtr is tested via testdata (MakeInterfaceNilPtrFixture).
-// buildSSA panics on interface method declarations inline.
-
-// TestNilAnalyze_DerefInBothBranches tests dereference in both branches
-// of an if/else without nil check — both should warn.
-func TestNilAnalyze_DerefInBothBranches(t *testing.T) {
-	t.Parallel()
-
-	ssaPkg := buildSSA(t, `
-		package example
-
-		func derefBoth(p *int, cond bool) int {
-			if cond {
-				return *p
-			}
-			return *p
-		}
-	`)
-
-	var fn *ssa.Function
-	for _, member := range ssaPkg.Members {
-		f, ok := member.(*ssa.Function)
-		if ok && f.Name() == "derefBoth" {
-			fn = f
-			break
-		}
-	}
-	require.NotNil(t, fn)
-
-	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-	findings := analyzer.Analyze(fn)
-	// Dedup: same variable p reported once, not per-branch.
-	require.Len(t, findings, 1, "dedup: same variable p reported once")
-	for _, f := range findings {
-		require.Equal(t, analysis.Warning, f.Severity)
-	}
-}
-
 // ===========================================================================
 // Multi-predecessor refinement tests
 // ===========================================================================
 // These tests verify that branch refinement does not overwrite joined state
 // at merge points with multiple predecessors.
-
 // TestNilAnalyze_DefensiveNilCheckOnParam tests the pattern where a param
 // is checked with `if p != nil` and then returned at a merge point.
 // The return value should be MaybeNil (Warning), not DefinitelyNil (Bug).
@@ -824,6 +514,171 @@ func TestNilAnalyze_DefensiveNilCheckReturnSelf(t *testing.T) {
 	}
 }
 
+// TestNilAnalyze_MakeInterfaceNilPtr is tested via testdata (MakeInterfaceNilPtrFixture).
+// buildSSA panics on interface method declarations inline.
+// TestNilAnalyze_DerefInBothBranches tests dereference in both branches
+// of an if/else without nil check — both should warn.
+func TestNilAnalyze_DerefInBothBranches(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func derefBoth(p *int, cond bool) int {
+			if cond {
+				return *p
+			}
+			return *p
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "derefBoth" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+	// Dedup: same variable p reported once, not per-branch.
+	require.Len(t, findings, 1, "dedup: same variable p reported once")
+	for _, f := range findings {
+		require.Equal(t, analysis.Warning, f.Severity)
+	}
+}
+
+// TestNilAnalyze_EmptyFunction tests an empty function body.
+func TestNilAnalyze_EmptyFunction(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func empty() {}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "empty" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// ===========================================================================
+// Edge cases and robustness
+// ===========================================================================
+// TestNilAnalyze_ExternalFunction tests that a function with no body
+// (external/assembly-backed) does not panic and returns nil.
+func TestNilAnalyze_ExternalFunction(t *testing.T) {
+	t.Parallel()
+
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+
+	// Find any function that has no blocks (init functions or stubs).
+	// If none exist, create one synthetically via buildSSA with an
+	// empty function that the compiler might optimize to no blocks.
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+
+	// Use Double — it has blocks. Test that a non-pointer function
+	// produces no nil findings.
+	var fn *ssa.Function
+	for _, member := range pkgs[0].Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "Double" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings, "Double(x int) should have no nil findings")
+}
+
+// TestNilAnalyze_LoopWithNilCheck tests that a nil check inside a loop
+// is handled correctly by the worklist (convergence).
+func TestNilAnalyze_LoopWithNilCheck(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func walkSlice(ptrs []*int) int {
+			sum := 0
+			for i := 0; i < len(ptrs); i++ {
+				p := ptrs[i]
+				if p != nil {
+					sum += *p
+				}
+			}
+			return sum
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "walkSlice" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+	// p is checked with != nil before dereference — should be safe.
+	require.Empty(t, findings,
+		"loop with nil check should have no findings")
+}
+
+// TestNilAnalyze_MultiplePointerParams tests a function with multiple
+// pointer parameters — each should independently warn.
+func TestNilAnalyze_MultiplePointerParams(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func multiPtr(a, b, c *int) int {
+			return *a + *b + *c
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "multiPtr" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+	require.Len(t, findings, 3, "each of the 3 pointer params should produce a warning")
+
+	for _, f := range findings {
+		require.Equal(t, analysis.Warning, f.Severity)
+		require.Contains(t, f.Message, "possible nil dereference")
+	}
+}
+
 // TestNilAnalyze_MultiPredMergeNoFalseNil tests a merge block with 3
 // predecessors (if/else + fallthrough). The merged state must be a
 // proper join, not the refinement from one edge.
@@ -864,6 +719,102 @@ func TestNilAnalyze_MultiPredMergeNoFalseNil(t *testing.T) {
 	}
 }
 
+// TestNilAnalyze_NestedNilCheck tests nested nil checks on double pointers.
+func TestNilAnalyze_NestedNilCheck(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func nestedCheck(pp **int) int {
+			if pp != nil {
+				p := *pp
+				if p != nil {
+					return *p
+				}
+			}
+			return 0
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "nestedCheck" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings,
+		"nested nil checks should prove safety for both levels")
+}
+
+// TestNilAnalyze_ReturnNew tests that returning new(T) and immediately
+// dereferencing is safe.
+func TestNilAnalyze_ReturnNew(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func returnNew() int {
+			p := new(int)
+			*p = 100
+			return *p
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "returnNew" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings)
+}
+
+// TestNilAnalyze_SinglePredNeqRefinementStillWorks verifies the if p != nil
+// pattern with a single predecessor still refines correctly.
+func TestNilAnalyze_SinglePredNeqRefinementStillWorks(t *testing.T) {
+	t.Parallel()
+
+	ssaPkg := buildSSA(t, `
+		package example
+
+		func guardedDeref(p *int) int {
+			if p != nil {
+				return *p
+			}
+			return 0
+		}
+	`)
+
+	var fn *ssa.Function
+	for _, member := range ssaPkg.Members {
+		f, ok := member.(*ssa.Function)
+		if ok && f.Name() == "guardedDeref" {
+			fn = f
+			break
+		}
+	}
+	require.NotNil(t, fn)
+
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
+	require.Empty(t, findings,
+		"guarded deref in true branch of p != nil must be safe")
+}
+
 // TestNilAnalyze_SinglePredRefinementStillWorks verifies that the fix
 // did not break single-predecessor refinement — the early-return guard
 // pattern must still prove the deref safe.
@@ -897,34 +848,78 @@ func TestNilAnalyze_SinglePredRefinementStillWorks(t *testing.T) {
 		"single-predecessor refinement must still prove deref safe after early return")
 }
 
-// TestNilAnalyze_SinglePredNeqRefinementStillWorks verifies the if p != nil
-// pattern with a single predecessor still refines correctly.
-func TestNilAnalyze_SinglePredNeqRefinementStillWorks(t *testing.T) {
+// ===========================================================================
+// NilAnalyzer.Analyze against testdata fixtures (real packages)
+// ===========================================================================
+// TestNilAnalyze_Testdata runs the nil analyzer against testdata/nilderef.go
+// fixtures and verifies expected findings per function.
+func TestNilAnalyze_Testdata(t *testing.T) {
 	t.Parallel()
 
-	ssaPkg := buildSSA(t, `
-		package example
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+	pkg := pkgs[0]
 
-		func guardedDeref(p *int) int {
-			if p != nil {
-				return *p
-			}
-			return 0
-		}
-	`)
+	tests := []struct {
+		fnName   string
+		wantLen  int
+		severity analysis.Severity
+		message  string
+	}{
+		// Proven bugs
+		{"DerefNilLiteral", 1, analysis.Bug, "nil dereference"},
+		{"FieldAccessOnNil", 1, analysis.Bug, "nil dereference"},
 
-	var fn *ssa.Function
-	for _, member := range ssaPkg.Members {
-		f, ok := member.(*ssa.Function)
-		if ok && f.Name() == "guardedDeref" {
-			fn = f
-			break
-		}
+		// Warnings
+		{"DerefParam", 1, analysis.Warning, "possible nil dereference"},
+		// MethodCallOnParam uses interface invoke — now checked.
+		{"MethodCallOnParam", 1, analysis.Warning, "possible nil dereference"},
+
+		// Safe — no findings
+		{"DerefAfterCheck", 0, 0, ""},
+		{"DerefNew", 0, 0, ""},
+		{"AllocNew", 0, 0, ""},
+		{"AllocAddr", 0, 0, ""},
+		{"MakeMapFixture", 0, 0, ""},
+		{"MakeMapHintFixture", 0, 0, ""},
+		{"MakeChanFixture", 0, 0, ""},
+		{"MakeChanBufFixture", 0, 0, ""},
+		{"RefineNotNil", 0, 0, ""},
+		{"RefineEqlNil", 0, 0, ""},
+		{"RefineNilOnLeft", 0, 0, ""},
+		{"RefineInterface", 0, 0, ""},
+		{"RefineSlice", 0, 0, ""},
+		{"MakeInterfaceFixture", 0, 0, ""},
+		{"MakeInterfaceNilPtrFixture", 0, 0, ""},
 	}
-	require.NotNil(t, fn)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-	findings := analyzer.Analyze(fn)
-	require.Empty(t, findings,
-		"guarded deref in true branch of p != nil must be safe")
+	for _, tt := range tests {
+		t.Run(tt.fnName, func(t *testing.T) {
+			t.Parallel()
+
+			var fn *ssa.Function
+			for _, member := range pkg.Members {
+				f, ok := member.(*ssa.Function)
+				if ok && f.Name() == tt.fnName {
+					fn = f
+					break
+				}
+			}
+			require.NotNil(t, fn, "function %s not found in testdata", tt.fnName)
+
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+			findings := analyzer.Analyze(fn)
+
+			require.Len(t, findings, tt.wantLen,
+				"%s: expected %d findings, got %d", tt.fnName, tt.wantLen, len(findings))
+
+			if tt.wantLen > 0 {
+				require.Equal(t, tt.severity, findings[0].Severity,
+					"%s: wrong severity", tt.fnName)
+				require.Contains(t, findings[0].Message, tt.message,
+					"%s: wrong message", tt.fnName)
+			}
+		})
+	}
 }

@@ -100,4 +100,3 @@ func safeSummarize(a *NilAnalyzer, fn *ssa.Function) (states []NilState) {
 	}()
 	return a.SummarizeFunction(fn)
 }
-

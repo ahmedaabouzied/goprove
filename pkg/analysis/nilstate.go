@@ -1,13 +1,13 @@
 package analysis
 
-type NilState uint8
-
 const (
 	NilBottom        NilState = iota // Unreachable
 	DefinitelyNil                    // Proven nil
 	DefinitelyNotNil                 // Proven non-nil
 	MaybeNil                         // Unknown. Could be either (Top)
 )
+
+type NilState uint8
 
 func (s NilState) Equals(other NilState) bool {
 	return s == other

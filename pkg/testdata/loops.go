@@ -1,14 +1,5 @@
 package testdata
 
-// Sum returns the sum of integers from 1 to n.
-func Sum(n int) int {
-	total := 0
-	for i := 1; i <= n; i++ {
-		total += i
-	}
-	return total
-}
-
 // Countdown counts down from n to 0, returning the number of steps.
 func Countdown(n int) int {
 	steps := 0
@@ -17,15 +8,6 @@ func Countdown(n int) int {
 		steps++
 	}
 	return steps
-}
-
-// SumSlice returns the sum of all elements using a range loop.
-func SumSlice(s []int) int {
-	total := 0
-	for _, v := range s {
-		total += v
-	}
-	return total
 }
 
 // Nested has a nested loop structure.
@@ -37,4 +19,22 @@ func Nested(n int) int {
 		}
 	}
 	return count
+}
+
+// Sum returns the sum of integers from 1 to n.
+func Sum(n int) int {
+	total := 0
+	for i := 1; i <= n; i++ {
+		total += i
+	}
+	return total
+}
+
+// SumSlice returns the sum of all elements using a range loop.
+func SumSlice(s []int) int {
+	total := 0
+	for _, v := range s {
+		total += v
+	}
+	return total
 }

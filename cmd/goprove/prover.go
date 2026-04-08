@@ -14,15 +14,6 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-type Prover struct {
-	path             string
-	intervalAnalyzer *analysis.Analyzer
-	nilAnalyzer      *analysis.NilAnalyzer
-	prog             *ssa.Program
-	pkgs             []*ssa.Package
-	progress         *Progress
-}
-
 func NewProver(path string, progress *Progress) (*Prover, error) {
 	done := progress.Phase("Loading packages")
 	prog, pkgs, err := loader.Load(path)
@@ -63,6 +54,15 @@ func NewProver(path string, progress *Progress) (*Prover, error) {
 	done()
 
 	return &Prover{path, analyzer, nilAnalyzer, prog, pkgs, progress}, nil
+}
+
+type Prover struct {
+	path             string
+	intervalAnalyzer *analysis.Analyzer
+	nilAnalyzer      *analysis.NilAnalyzer
+	prog             *ssa.Program
+	pkgs             []*ssa.Package
+	progress         *Progress
 }
 
 // Prove is the main entry point for our prover.
@@ -136,6 +136,12 @@ func (p *Prover) Prove() (int, error) {
 	return len(seen), w.Flush()
 }
 
+func (p *Prover) analyzeFunction(fn *ssa.Function) []analysis.Finding {
+	findings := p.intervalAnalyzer.Analyze(fn)
+	findings = append(findings, p.nilAnalyzer.Analyze(fn)...)
+	return findings
+}
+
 func (p *Prover) analyzePkg(pkg *ssa.Package) []analysis.Finding {
 	var findings []analysis.Finding
 	for _, member := range pkg.Members {
@@ -146,17 +152,6 @@ func (p *Prover) analyzePkg(pkg *ssa.Package) []analysis.Finding {
 		findings = append(findings, p.analyzeFunction(fn)...)
 	}
 	return findings
-}
-
-func (p *Prover) analyzeFunction(fn *ssa.Function) []analysis.Finding {
-	findings := p.intervalAnalyzer.Analyze(fn)
-	findings = append(findings, p.nilAnalyzer.Analyze(fn)...)
-	return findings
-}
-
-func printFinding(wd string, w *bufio.Writer, fset *token.FileSet, finding analysis.Finding) error {
-	_, err := fmt.Fprint(w, formatFinding(wd, fset, finding))
-	return err
 }
 
 func formatFinding(wd string, fset *token.FileSet, finding analysis.Finding) string {
@@ -174,4 +169,9 @@ func formatFinding(wd string, fset *token.FileSet, finding analysis.Finding) str
 	default:
 		return ""
 	}
+}
+
+func printFinding(wd string, w *bufio.Writer, fset *token.FileSet, finding analysis.Finding) error {
+	_, err := fmt.Fprint(w, formatFinding(wd, fset, finding))
+	return err
 }

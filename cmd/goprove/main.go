@@ -11,8 +11,6 @@ import (
 	"github.com/ahmedaabouzied/goprove/pkg/version"
 )
 
-var interactive = flag.Bool("i", false, "show progress during analysis")
-
 func main() {
 	flag.Usage = printHelp
 	flag.Parse()
@@ -69,6 +67,18 @@ func main() {
 	}
 }
 
+var interactive = flag.Bool("i", false, "show progress during analysis")
+
+func printErrAndOsExit(msg string) {
+	if len(msg) > consts.OneKB { // Checking input bounds for safety.
+		msg = msg[:consts.OneKB] // Truncate the error message.
+	}
+	_, _ = fmt.Fprintln(os.Stderr, msg)
+	// We don't have to check errors here. If stderr is broken and we can't write to it,
+	// the user has more things to worry about.
+	os.Exit(1)
+}
+
 func printHelp() {
 	w := bufio.NewWriter(os.Stdout)
 	fmt.Fprintln(w, "goprove: A code prover for Golang.")
@@ -92,14 +102,4 @@ func validateArgs(args []string) {
 	if len(args) < 1 {
 		printErrAndOsExit("missing target package required argument")
 	}
-}
-
-func printErrAndOsExit(msg string) {
-	if len(msg) > consts.OneKB { // Checking input bounds for safety.
-		msg = msg[:consts.OneKB] // Truncate the error message.
-	}
-	_, _ = fmt.Fprintln(os.Stderr, msg)
-	// We don't have to check errors here. If stderr is broken and we can't write to it,
-	// the user has more things to worry about.
-	os.Exit(1)
 }

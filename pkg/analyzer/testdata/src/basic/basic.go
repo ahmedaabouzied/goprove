@@ -1,15 +1,14 @@
 package basic
 
-// Combined analyzer test — both nil and interval findings.
-
-func nilDeref() int {
-	var p *int
-	return *p // want "nil dereference of nil pointer — value is always nil"
-}
-
 func divByZero(x int) int {
 	zero := 0
 	return x / zero // want "division by zero"
+}
+
+// Combined analyzer test — both nil and interval findings.
+func nilDeref() int {
+	var p *int
+	return *p // want "nil dereference of nil pointer — value is always nil"
 }
 
 func safe(x, y int) int {

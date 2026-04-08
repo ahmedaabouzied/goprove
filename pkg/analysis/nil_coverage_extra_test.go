@@ -10,76 +10,9 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// ===========================================================================
-// Internal coverage tests — package analysis (not analysis_test)
-// These test internal functions and edge cases not reachable via buildSSA.
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
-// nilValueName: cover all return "" paths
-// ---------------------------------------------------------------------------
-
-func TestNilValueName_Phi(t *testing.T) {
-	t.Parallel()
-	phi := &ssa.Phi{}
-	require.Equal(t, "", nilValueName(phi), "Phi should return empty")
-}
-
-func TestNilValueName_NonNilConst(t *testing.T) {
-	t.Parallel()
-	c := ssa.NewConst(constant.MakeInt64(42), types.Typ[types.Int])
-	require.Equal(t, "", nilValueName(c), "non-nil Const should return empty")
-}
-
-func TestNilValueName_UnOpNonGlobal(t *testing.T) {
-	t.Parallel()
-	param := ssa.NewConst(nil, types.NewPointer(types.Typ[types.Int]))
-	unOp := &ssa.UnOp{Op: token.MUL}
-	unOp.X = param
-	require.Equal(t, "", nilValueName(unOp),
-		"UnOp from non-Global should return empty")
-}
-
-func TestNilValueName_CallNoStaticCallee(t *testing.T) {
-	t.Parallel()
-	// A Call with no StaticCallee (interface dispatch).
-	call := &ssa.Call{}
-	require.Equal(t, "", nilValueName(call),
-		"Call with no static callee should return empty")
-}
-
-func TestNilValueName_AllocNoComment(t *testing.T) {
-	t.Parallel()
-	alloc := &ssa.Alloc{}
-	require.Equal(t, "", nilValueName(alloc),
-		"Alloc with no comment should return empty")
-}
-
-func TestNilValueName_UnknownType(t *testing.T) {
-	t.Parallel()
-	// BinOp is not handled — should return empty.
-	binOp := &ssa.BinOp{Op: token.ADD}
-	require.Equal(t, "", nilValueName(binOp))
-}
-
-// ---------------------------------------------------------------------------
-// resolveCallees: both paths
-// ---------------------------------------------------------------------------
-
-func TestResolveCallees_NilResolver(t *testing.T) {
-	t.Parallel()
-
-	a := &NilAnalyzer{resolver: nil}
-	call := &ssa.Call{}
-	// No resolver, no StaticCallee → nil.
-	result := a.resolveCallees(call)
-	require.Nil(t, result)
-}
-
 // ---------------------------------------------------------------------------
 // checkInstruction: slice IndexAddr dedup break path
 // ---------------------------------------------------------------------------
-
 func TestCheckInstruction_SliceIndexDedupBreak(t *testing.T) {
 	t.Parallel()
 
@@ -111,30 +44,9 @@ func TestCheckInstruction_SliceIndexDedupBreak(t *testing.T) {
 // ---------------------------------------------------------------------------
 // classifyArg: MakeInterface, MakeSlice, MakeMap, MakeChan
 // ---------------------------------------------------------------------------
-
 func TestClassifyArg_Alloc(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.Alloc{}))
-}
-
-func TestClassifyArg_MakeInterface(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.MakeInterface{}))
-}
-
-func TestClassifyArg_MakeSlice(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.MakeSlice{}))
-}
-
-func TestClassifyArg_MakeMap(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.MakeMap{}))
-}
-
-func TestClassifyArg_MakeChan(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.MakeChan{}))
 }
 
 func TestClassifyArg_FieldAddr(t *testing.T) {
@@ -147,16 +59,30 @@ func TestClassifyArg_IndexAddr(t *testing.T) {
 	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.IndexAddr{}))
 }
 
+func TestClassifyArg_MakeChan(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.MakeChan{}))
+}
+
+func TestClassifyArg_MakeInterface(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.MakeInterface{}))
+}
+
+func TestClassifyArg_MakeMap(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.MakeMap{}))
+}
+
+func TestClassifyArg_MakeSlice(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, DefinitelyNotNil, classifyArg(&ssa.MakeSlice{}))
+}
+
 func TestClassifyArg_NilConst(t *testing.T) {
 	t.Parallel()
 	c := ssa.NewConst(nil, types.NewPointer(types.Typ[types.Int]))
 	require.Equal(t, DefinitelyNil, classifyArg(c))
-}
-
-func TestClassifyArg_NonNilConst(t *testing.T) {
-	t.Parallel()
-	c := ssa.NewConst(constant.MakeInt64(42), types.Typ[types.Int])
-	require.Equal(t, DefinitelyNotNil, classifyArg(c))
 }
 
 func TestClassifyArg_NillableParam(t *testing.T) {
@@ -174,47 +100,16 @@ func TestClassifyArg_NillableParam(t *testing.T) {
 	_ = binOp
 }
 
-// ---------------------------------------------------------------------------
-// nilStatesEqual
-// ---------------------------------------------------------------------------
-
-func TestNilStatesEqual_SameLength(t *testing.T) {
+func TestClassifyArg_NonNilConst(t *testing.T) {
 	t.Parallel()
-	a := []NilState{DefinitelyNotNil, MaybeNil}
-	b := []NilState{DefinitelyNotNil, MaybeNil}
-	require.True(t, nilStatesEqual(a, b))
-}
-
-func TestNilStatesEqual_DifferentLength(t *testing.T) {
-	t.Parallel()
-	a := []NilState{DefinitelyNotNil}
-	b := []NilState{DefinitelyNotNil, MaybeNil}
-	require.False(t, nilStatesEqual(a, b))
-}
-
-func TestNilStatesEqual_DifferentValues(t *testing.T) {
-	t.Parallel()
-	a := []NilState{DefinitelyNotNil, MaybeNil}
-	b := []NilState{DefinitelyNotNil, DefinitelyNil}
-	require.False(t, nilStatesEqual(a, b))
-}
-
-func TestNilStatesEqual_BothEmpty(t *testing.T) {
-	t.Parallel()
-	require.True(t, nilStatesEqual(nil, nil))
-	require.True(t, nilStatesEqual([]NilState{}, []NilState{}))
-}
-
-func TestNilStatesEqual_OneNil(t *testing.T) {
-	t.Parallel()
-	require.False(t, nilStatesEqual(nil, []NilState{MaybeNil}))
+	c := ssa.NewConst(constant.MakeInt64(42), types.Typ[types.Int])
+	require.Equal(t, DefinitelyNotNil, classifyArg(c))
 }
 
 // ---------------------------------------------------------------------------
 // ComputeParamNilStatesAnalysis: callerState == nil fallback path
 // Directly test with a caller not in convergedStates.
 // ---------------------------------------------------------------------------
-
 func TestComputeParamNilStatesAnalysis_CallerStateNil(t *testing.T) {
 	t.Parallel()
 
@@ -241,4 +136,102 @@ func TestComputeParamNilStatesAnalysis_CallerStateNil(t *testing.T) {
 	// (not in allFunctions) calls a function in our package.
 	// We've verified this exists but can't easily trigger in unit tests
 	// without multi-module setup. Marked as known uncoverable.
+}
+
+func TestNilStatesEqual_BothEmpty(t *testing.T) {
+	t.Parallel()
+	require.True(t, nilStatesEqual(nil, nil))
+	require.True(t, nilStatesEqual([]NilState{}, []NilState{}))
+}
+
+func TestNilStatesEqual_DifferentLength(t *testing.T) {
+	t.Parallel()
+	a := []NilState{DefinitelyNotNil}
+	b := []NilState{DefinitelyNotNil, MaybeNil}
+	require.False(t, nilStatesEqual(a, b))
+}
+
+func TestNilStatesEqual_DifferentValues(t *testing.T) {
+	t.Parallel()
+	a := []NilState{DefinitelyNotNil, MaybeNil}
+	b := []NilState{DefinitelyNotNil, DefinitelyNil}
+	require.False(t, nilStatesEqual(a, b))
+}
+
+func TestNilStatesEqual_OneNil(t *testing.T) {
+	t.Parallel()
+	require.False(t, nilStatesEqual(nil, []NilState{MaybeNil}))
+}
+
+// ---------------------------------------------------------------------------
+// nilStatesEqual
+// ---------------------------------------------------------------------------
+func TestNilStatesEqual_SameLength(t *testing.T) {
+	t.Parallel()
+	a := []NilState{DefinitelyNotNil, MaybeNil}
+	b := []NilState{DefinitelyNotNil, MaybeNil}
+	require.True(t, nilStatesEqual(a, b))
+}
+
+func TestNilValueName_AllocNoComment(t *testing.T) {
+	t.Parallel()
+	alloc := &ssa.Alloc{}
+	require.Equal(t, "", nilValueName(alloc),
+		"Alloc with no comment should return empty")
+}
+
+func TestNilValueName_CallNoStaticCallee(t *testing.T) {
+	t.Parallel()
+	// A Call with no StaticCallee (interface dispatch).
+	call := &ssa.Call{}
+	require.Equal(t, "", nilValueName(call),
+		"Call with no static callee should return empty")
+}
+
+func TestNilValueName_NonNilConst(t *testing.T) {
+	t.Parallel()
+	c := ssa.NewConst(constant.MakeInt64(42), types.Typ[types.Int])
+	require.Equal(t, "", nilValueName(c), "non-nil Const should return empty")
+}
+
+// ===========================================================================
+// Internal coverage tests — package analysis (not analysis_test)
+// These test internal functions and edge cases not reachable via buildSSA.
+// ===========================================================================
+// ---------------------------------------------------------------------------
+// nilValueName: cover all return "" paths
+// ---------------------------------------------------------------------------
+func TestNilValueName_Phi(t *testing.T) {
+	t.Parallel()
+	phi := &ssa.Phi{}
+	require.Equal(t, "", nilValueName(phi), "Phi should return empty")
+}
+
+func TestNilValueName_UnknownType(t *testing.T) {
+	t.Parallel()
+	// BinOp is not handled — should return empty.
+	binOp := &ssa.BinOp{Op: token.ADD}
+	require.Equal(t, "", nilValueName(binOp))
+}
+
+func TestNilValueName_UnOpNonGlobal(t *testing.T) {
+	t.Parallel()
+	param := ssa.NewConst(nil, types.NewPointer(types.Typ[types.Int]))
+	unOp := &ssa.UnOp{Op: token.MUL}
+	unOp.X = param
+	require.Equal(t, "", nilValueName(unOp),
+		"UnOp from non-Global should return empty")
+}
+
+// ---------------------------------------------------------------------------
+// resolveCallees: both paths
+// ---------------------------------------------------------------------------
+func TestResolveCallees_NilResolver(t *testing.T) {
+	t.Parallel()
+
+	a := &NilAnalyzer{resolver: nil}
+	call := &ssa.Call{}
+	// No resolver, no StaticCallee → nil.
+	result := a.resolveCallees(call)
+	require.Nil(t, result)
 }

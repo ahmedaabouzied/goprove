@@ -12,12 +12,12 @@ func TestAnalyzer(t *testing.T) {
 	analysistest.Run(t, testdata, analyzer.Analyzer, "basic")
 }
 
-func TestNilAnalyzer(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, analyzer.NilAnalyzer, "nilcheck")
-}
-
 func TestIntervalAnalyzer(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, analyzer.IntervalAnalyzer, "interval")
+}
+
+func TestNilAnalyzer(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, analyzer.NilAnalyzer, "nilcheck")
 }

@@ -9,17 +9,17 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-type CHAResolver struct {
-	prog  *ssa.Program
-	graph *callgraph.Graph
-}
-
 func NewCHAResolver(prog *ssa.Program) *CHAResolver {
 	graph := BuildCallGraph(prog)
 	return &CHAResolver{
 		prog,
 		graph,
 	}
+}
+
+type CHAResolver struct {
+	prog  *ssa.Program
+	graph *callgraph.Graph
 }
 
 func (r *CHAResolver) Resolve(call ssa.CallInstruction) []*ssa.Function {

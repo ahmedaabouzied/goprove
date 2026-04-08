@@ -7,16 +7,12 @@ import (
 	"time"
 )
 
-type githubRelease struct {
-	TagName string `json:"tag_name"`
-}
-
-const githubReleasesURL = "https://api.github.com/repos/ahmedaabouzied/goprove/releases/latest"
-
 // FetchLatestVersion fetches the latest release tag from GitHub.
 func FetchLatestVersion() (string, error) {
 	return fetchFromURL(githubReleasesURL)
 }
+
+const githubReleasesURL = "https://api.github.com/repos/ahmedaabouzied/goprove/releases/latest"
 
 func fetchFromURL(url string) (string, error) {
 	client := http.Client{Timeout: 5 * time.Second}
@@ -42,4 +38,8 @@ func fetchFromURL(url string) (string, error) {
 	}
 
 	return release.TagName, nil
+}
+
+type githubRelease struct {
+	TagName string `json:"tag_name"`
 }

@@ -5,22 +5,13 @@ import (
 	"runtime/debug"
 )
 
-var Version string // LDFlag target
-var Commit string  // LDFlag target
-var Date string    // LDFlag target
+// LDFlag target
+var Commit string
 
-func init() {
-	if Version != "" {
-		return
-	}
-	// go install ...@v0.2.0 sets Main.Version to "v0.2.0".
-	// go install ...@latest also sets it to the resolved version.
-	if buildInfo, ok := debug.ReadBuildInfo(); ok {
-		if v := buildInfo.Main.Version; v != "" && v != "(devel)" {
-			Version = v
-		}
-	}
-}
+// LDFlag target
+var Date string
+
+var Version string // LDFlag target
 
 func Info() string {
 	if Version != "" {
@@ -53,4 +44,18 @@ func Info() string {
 	}
 
 	return "goprove dev (unknown)"
+}
+
+// LDFlag target
+func init() {
+	if Version != "" {
+		return
+	}
+	// go install ...@v0.2.0 sets Main.Version to "v0.2.0".
+	// go install ...@latest also sets it to the resolved version.
+	if buildInfo, ok := debug.ReadBuildInfo(); ok {
+		if v := buildInfo.Main.Version; v != "" && v != "(devel)" {
+			Version = v
+		}
+	}
 }

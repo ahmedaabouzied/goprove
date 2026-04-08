@@ -7,20 +7,34 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-type ParamNilStates struct {
-	// paramStates maps each function to the nil state of its parameters.
-	// Computed by analyzing all call sites in the program.
-	paramsStates map[*ssa.Function][]NilState
-}
+func ComputeParamNilStates(prog *ssa.Program, pkgs []*ssa.Package, graph *callgraph.Graph) *ParamNilStates {
+	p := &ParamNilStates{
+		paramsStates: make(map[*ssa.Function][]NilState),
+	}
 
-func (p *ParamNilStates) States() map[*ssa.Function][]NilState {
-	return p.paramsStates
-}
+	sites := p.collectCallSites(pkgs, graph)
 
-type callSite struct {
-	caller *ssa.Function
-	block  *ssa.BasicBlock
-	args   []ssa.Value
+	for callee, callSites := range sites {
+		nParams := len(callee.Params)
+		if nParams == 0 {
+			continue
+		}
+		paramStates := make([]NilState, nParams)
+		for i := range paramStates {
+			paramStates[i] = NilBottom
+		}
+
+		// Join argument nil states across all call sites.
+		for _, site := range callSites {
+			for i := 0; i < nParams && i < len(site.args); i++ {
+				paramStates[i] = paramStates[i].Join(classifyArg(site.args[i]))
+			}
+		}
+
+		p.paramsStates[callee] = paramStates
+	}
+
+	return p
 }
 
 func ComputeParamNilStatesAnalysis(
@@ -176,46 +190,14 @@ func ComputeParamNilStatesAnalysis(
 	return p
 }
 
-func nilStatesEqual(a, b []NilState) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+type ParamNilStates struct {
+	// paramStates maps each function to the nil state of its parameters.
+	// Computed by analyzing all call sites in the program.
+	paramsStates map[*ssa.Function][]NilState
 }
 
-func ComputeParamNilStates(prog *ssa.Program, pkgs []*ssa.Package, graph *callgraph.Graph) *ParamNilStates {
-	p := &ParamNilStates{
-		paramsStates: make(map[*ssa.Function][]NilState),
-	}
-
-	sites := p.collectCallSites(pkgs, graph)
-
-	for callee, callSites := range sites {
-		nParams := len(callee.Params)
-		if nParams == 0 {
-			continue
-		}
-		paramStates := make([]NilState, nParams)
-		for i := range paramStates {
-			paramStates[i] = NilBottom
-		}
-
-		// Join argument nil states across all call sites.
-		for _, site := range callSites {
-			for i := 0; i < nParams && i < len(site.args); i++ {
-				paramStates[i] = paramStates[i].Join(classifyArg(site.args[i]))
-			}
-		}
-
-		p.paramsStates[callee] = paramStates
-	}
-
-	return p
+func (p *ParamNilStates) States() map[*ssa.Function][]NilState {
+	return p.paramsStates
 }
 
 func (p *ParamNilStates) collectCallSites(pkgs []*ssa.Package, graph *callgraph.Graph) map[*ssa.Function][]callSite {
@@ -324,4 +306,22 @@ func classifyArg(arg ssa.Value) NilState {
 		}
 		return MaybeNil
 	}
+}
+
+func nilStatesEqual(a, b []NilState) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+type callSite struct {
+	caller *ssa.Function
+	block  *ssa.BasicBlock
+	args   []ssa.Value
 }

@@ -1,8 +1,18 @@
 package testdata
 
-// DerefParam dereferences a pointer parameter without checking.
-func DerefParam(p *int) int {
-	return *p // want "possible nil dereference"
+// AllocAddr tests that &x produces a non-nil pointer.
+func AllocAddr() *int {
+	x := 42
+	return &x
+}
+
+// ---------------------------------------------------------------------------
+// Fixtures for transfer function tests
+// ---------------------------------------------------------------------------
+// AllocNew tests that new(T) produces a non-nil pointer.
+func AllocNew() *int {
+	p := new(int)
+	return p
 }
 
 // DerefAfterCheck dereferences only after a nil check.
@@ -26,6 +36,11 @@ func DerefNilLiteral() int {
 	return *p // want "proven nil dereference"
 }
 
+// DerefParam dereferences a pointer parameter without checking.
+func DerefParam(p *int) int {
+	return *p // want "possible nil dereference"
+}
+
 // FieldAccessOnNil accesses a field on a nil struct pointer.
 func FieldAccessOnNil() int {
 	type S struct{ X int }
@@ -33,51 +48,23 @@ func FieldAccessOnNil() int {
 	return s.X // want "proven nil dereference"
 }
 
-// MethodCallOnParam calls a method on a possibly-nil receiver.
-func MethodCallOnParam(s fmt_Stringer) string {
-	return s.String() // want "possible nil dereference"
+// MakeChanBufFixture tests that make(chan T, size) is non-nil.
+func MakeChanBufFixture() chan string {
+	return make(chan string, 10)
 }
 
-// fmt_Stringer mimics fmt.Stringer to avoid importing fmt in testdata.
-type fmt_Stringer interface {
-	String() string
+// MakeChanFixture tests that make(chan T) is non-nil.
+func MakeChanFixture() chan int {
+	return make(chan int)
 }
 
-// MapLookupOk uses the ok pattern for safe map access.
-func MapLookupOk(m map[string]*int, key string) int {
-	v, ok := m[key]
-	if ok && v != nil {
-		return *v // safe — v is proven non-nil
-	}
-	return 0
+func MakeInterfaceFixture() fmt_Stringer {
+	return MakeIfaceImpl{}
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures for transfer function tests
-// ---------------------------------------------------------------------------
-
-// AllocNew tests that new(T) produces a non-nil pointer.
-func AllocNew() *int {
-	p := new(int)
+func MakeInterfaceNilPtrFixture() fmt_Stringer {
+	var p *MakeIfacePtr
 	return p
-}
-
-// AllocAddr tests that &x produces a non-nil pointer.
-func AllocAddr() *int {
-	x := 42
-	return &x
-}
-
-// MakeSliceFixture tests that make([]T, n) is non-nil.
-// Uses a parameter for length to prevent SSA from optimizing away the MakeSlice.
-func MakeSliceFixture(n int) []int {
-	return make([]int, n)
-}
-
-// MakeSliceCapFixture tests that make([]T, n, cap) is non-nil.
-// Uses parameters for length and cap to prevent SSA from optimizing away the MakeSlice.
-func MakeSliceCapFixture(n, cap int) []byte {
-	return make([]byte, n, cap)
 }
 
 // MakeMapFixture tests that make(map[K]V) is non-nil.
@@ -90,14 +77,39 @@ func MakeMapHintFixture() map[string]int {
 	return make(map[string]int, 100)
 }
 
-// MakeChanFixture tests that make(chan T) is non-nil.
-func MakeChanFixture() chan int {
-	return make(chan int)
+// MakeSliceCapFixture tests that make([]T, n, cap) is non-nil.
+// Uses parameters for length and cap to prevent SSA from optimizing away the MakeSlice.
+func MakeSliceCapFixture(n, cap int) []byte {
+	return make([]byte, n, cap)
 }
 
-// MakeChanBufFixture tests that make(chan T, size) is non-nil.
-func MakeChanBufFixture() chan string {
-	return make(chan string, 10)
+// MakeSliceFixture tests that make([]T, n) is non-nil.
+// Uses a parameter for length to prevent SSA from optimizing away the MakeSlice.
+func MakeSliceFixture(n int) []int {
+	return make([]int, n)
+}
+
+// MapLookupOk uses the ok pattern for safe map access.
+func MapLookupOk(m map[string]*int, key string) int {
+	v, ok := m[key]
+	if ok && v != nil {
+		return *v // safe — v is proven non-nil
+	}
+	return 0
+}
+
+// MethodCallOnParam calls a method on a possibly-nil receiver.
+func MethodCallOnParam(s fmt_Stringer) string {
+	return s.String() // want "possible nil dereference"
+}
+
+// PhiAllNil tests a Phi where all branches are nil.
+func PhiAllNil(cond bool) *int {
+	var p *int
+	if cond {
+		p = nil
+	}
+	return p
 }
 
 // PhiBothNotNil tests a Phi where both branches produce non-nil.
@@ -124,33 +136,20 @@ func PhiOneBranchNil(cond bool) *int {
 	return p
 }
 
-// PhiAllNil tests a Phi where all branches are nil.
-func PhiAllNil(cond bool) *int {
-	var p *int
-	if cond {
-		p = nil
-	}
-	return p
-}
-
-// ---------------------------------------------------------------------------
-// Fixtures for nil branch refinement tests
-// ---------------------------------------------------------------------------
-
-// RefineNotNil tests that p != nil narrows the true branch to DefinitelyNotNil.
-func RefineNotNil(p *int) int {
-	if p != nil {
-		return *p // safe — p is proven non-nil
-	}
-	return 0
-}
-
 // RefineEqlNil tests that p == nil narrows the true branch to DefinitelyNil.
 func RefineEqlNil(p *int) int {
 	if p == nil {
 		return 0
 	}
 	return *p // safe — p is proven non-nil in the else branch
+}
+
+// RefineInterface tests nil check on an interface parameter.
+func RefineInterface(s fmt_Stringer) string {
+	if s != nil {
+		return s.String()
+	}
+	return ""
 }
 
 // RefineNilOnLeft tests nil == p (nil constant on the left side).
@@ -161,12 +160,15 @@ func RefineNilOnLeft(p *int) int {
 	return *p
 }
 
-// RefineInterface tests nil check on an interface parameter.
-func RefineInterface(s fmt_Stringer) string {
-	if s != nil {
-		return s.String()
+// ---------------------------------------------------------------------------
+// Fixtures for nil branch refinement tests
+// ---------------------------------------------------------------------------
+// RefineNotNil tests that p != nil narrows the true branch to DefinitelyNotNil.
+func RefineNotNil(p *int) int {
+	if p != nil {
+		return *p // safe — p is proven non-nil
 	}
-	return ""
+	return 0
 }
 
 // RefineSlice tests nil check on a slice parameter.
@@ -182,17 +184,13 @@ type MakeIfaceImpl struct{}
 
 func (MakeIfaceImpl) String() string { return "hello" }
 
-func MakeInterfaceFixture() fmt_Stringer {
-	return MakeIfaceImpl{}
-}
-
 // MakeInterfaceNilPtr wraps a nil pointer into an interface.
 // The interface itself is non-nil even though the underlying pointer is nil.
 type MakeIfacePtr struct{}
 
 func (*MakeIfacePtr) String() string { return "hi" }
 
-func MakeInterfaceNilPtrFixture() fmt_Stringer {
-	var p *MakeIfacePtr
-	return p
+// fmt_Stringer mimics fmt.Stringer to avoid importing fmt in testdata.
+type fmt_Stringer interface {
+	String() string
 }

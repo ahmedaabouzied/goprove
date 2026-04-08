@@ -39,15 +39,6 @@ var Analyzer = &goanalysis.Analyzer{
 	Run:      runCombined,
 }
 
-// NilAnalyzer runs only the nil pointer dereference analysis.
-var NilAnalyzer = &goanalysis.Analyzer{
-	Name:     "goprovenil",
-	Doc:      "proves nil pointer safety using abstract interpretation with address-based memory model",
-	URL:      "https://github.com/ahmedaabouzied/goprove",
-	Requires: []*goanalysis.Analyzer{buildssa.Analyzer},
-	Run:      runNil,
-}
-
 // IntervalAnalyzer runs only the interval analysis (division by zero, overflow).
 var IntervalAnalyzer = &goanalysis.Analyzer{
 	Name:     "goproveinterval",
@@ -57,22 +48,13 @@ var IntervalAnalyzer = &goanalysis.Analyzer{
 	Run:      runInterval,
 }
 
-func runCombined(pass *goanalysis.Pass) (interface{}, error) {
-	ssaResult := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
-	reportFindings(pass, analyzePackage(ssaResult.Pkg, ssaResult.SrcFuncs, true, true))
-	return nil, nil
-}
-
-func runNil(pass *goanalysis.Pass) (interface{}, error) {
-	ssaResult := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
-	reportFindings(pass, analyzePackage(ssaResult.Pkg, ssaResult.SrcFuncs, true, false))
-	return nil, nil
-}
-
-func runInterval(pass *goanalysis.Pass) (interface{}, error) {
-	ssaResult := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
-	reportFindings(pass, analyzePackage(ssaResult.Pkg, ssaResult.SrcFuncs, false, true))
-	return nil, nil
+// NilAnalyzer runs only the nil pointer dereference analysis.
+var NilAnalyzer = &goanalysis.Analyzer{
+	Name:     "goprovenil",
+	Doc:      "proves nil pointer safety using abstract interpretation with address-based memory model",
+	URL:      "https://github.com/ahmedaabouzied/goprove",
+	Requires: []*goanalysis.Analyzer{buildssa.Analyzer},
+	Run:      runNil,
 }
 
 // analyzePackage runs the requested analyzers on all functions in the package.
@@ -148,4 +130,22 @@ func reportFindings(pass *goanalysis.Pass, findings []proveanalysis.Finding) {
 			Message:  f.Message,
 		})
 	}
+}
+
+func runCombined(pass *goanalysis.Pass) (interface{}, error) {
+	ssaResult := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
+	reportFindings(pass, analyzePackage(ssaResult.Pkg, ssaResult.SrcFuncs, true, true))
+	return nil, nil
+}
+
+func runInterval(pass *goanalysis.Pass) (interface{}, error) {
+	ssaResult := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
+	reportFindings(pass, analyzePackage(ssaResult.Pkg, ssaResult.SrcFuncs, false, true))
+	return nil, nil
+}
+
+func runNil(pass *goanalysis.Pass) (interface{}, error) {
+	ssaResult := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
+	reportFindings(pass, analyzePackage(ssaResult.Pkg, ssaResult.SrcFuncs, true, false))
+	return nil, nil
 }

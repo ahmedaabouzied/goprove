@@ -11,12 +11,12 @@ import (
 func TestIntervalForType(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		kind     types.BasicKind
-		wantIv   Interval
-		wantOk   bool
-		wantLo   int64
-		wantHi   int64
+		name   string
+		kind   types.BasicKind
+		wantIv Interval
+		wantOk bool
+		wantLo int64
+		wantHi int64
 	}{
 		// Supported signed integer types
 		{"int8", types.Int8, NewInterval(math.MinInt8, math.MaxInt8), true, math.MinInt8, math.MaxInt8},

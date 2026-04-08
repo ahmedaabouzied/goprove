@@ -9,28 +9,17 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// ===========================================================================
-// Address model tests
-//
-// These tests verify that nil state is tracked per memory address, not per
-// SSA register. When the same field is loaded twice, the second load should
-// inherit the nil state from the first if it was refined by a nil check.
-// ===========================================================================
+// TestAddress_FieldNotChecked verifies that a field access WITHOUT a nil
+// check still produces a warning.
+func TestAddress_FieldNotChecked(t *testing.T) {
+	t.Parallel()
+	fn, _ := findTestdataFunc(t, "AddrFieldNotChecked")
 
-func findTestdataFunc(t *testing.T, name string) (*ssa.Function, []*ssa.Package) {
-	t.Helper()
-	_, pkgs, err := loader.Load("../../pkg/testdata")
-	require.NoError(t, err)
-	require.NotEmpty(t, pkgs)
+	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+	findings := analyzer.Analyze(fn)
 
-	for _, member := range pkgs[0].Members {
-		fn, ok := member.(*ssa.Function)
-		if ok && fn.Name() == name {
-			return fn, pkgs
-		}
-	}
-	t.Fatalf("function %s not found in testdata", name)
-	return nil, nil
+	require.NotEmpty(t, findings,
+		"field access without nil check should warn")
 }
 
 // TestAddress_FieldReload tests if o.In != nil { o.In.Val } — two loads
@@ -94,15 +83,25 @@ func TestAddress_NestedFieldCheck(t *testing.T) {
 		"nested field check should propagate to inner blocks")
 }
 
-// TestAddress_FieldNotChecked verifies that a field access WITHOUT a nil
-// check still produces a warning.
-func TestAddress_FieldNotChecked(t *testing.T) {
-	t.Parallel()
-	fn, _ := findTestdataFunc(t, "AddrFieldNotChecked")
+// ===========================================================================
+// Address model tests
+//
+// These tests verify that nil state is tracked per memory address, not per
+// SSA register. When the same field is loaded twice, the second load should
+// inherit the nil state from the first if it was refined by a nil check.
+// ===========================================================================
+func findTestdataFunc(t *testing.T, name string) (*ssa.Function, []*ssa.Package) {
+	t.Helper()
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
 
-	analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-	findings := analyzer.Analyze(fn)
-
-	require.NotEmpty(t, findings,
-		"field access without nil check should warn")
+	for _, member := range pkgs[0].Members {
+		fn, ok := member.(*ssa.Function)
+		if ok && fn.Name() == name {
+			return fn, pkgs
+		}
+	}
+	t.Fatalf("function %s not found in testdata", name)
+	return nil, nil
 }

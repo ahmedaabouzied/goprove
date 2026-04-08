@@ -10,95 +10,8 @@ import (
 )
 
 // ===========================================================================
-// TypeAssert CommaOk refinement tests
-//
-// These tests verify that type switches and comma-ok type assertions
-// refine the extracted value to DefinitelyNotNil in the true branch.
-//
-// SSA lowering for both patterns:
-//
-//   Block 0:
-//     t0 = TypeAssert x.(*Foo) ,ok
-//     t1 = Extract t0 #0          (*Foo)
-//     t2 = Extract t0 #1          (ok bool)
-//     if t2 goto Block1 else Block2
-//   Block 1:                      (true branch — assertion succeeded)
-//     &t1.Field                   (safe — t1 is DefinitelyNotNil)
-//
-// All tests use testdata/typeswitch.go fixtures.
-// ===========================================================================
-
-func TestTypeSwitch_Testdata(t *testing.T) {
-	t.Parallel()
-
-	_, pkgs, err := loader.Load("../../pkg/testdata")
-	require.NoError(t, err)
-	require.NotEmpty(t, pkgs)
-	pkg := pkgs[0]
-
-	tests := []struct {
-		fnName   string
-		wantLen  int
-		severity analysis.Severity
-		message  string
-	}{
-		// --- Safe: type switch proves non-nil ---
-
-		// switch v := a.(type) { case *Dog: v.Name }
-		{"TypeSwitchDeref", 0, 0, ""},
-
-		// if v, ok := a.(*Dog); ok { v.Name }
-		{"CommaOkDeref", 0, 0, ""},
-
-		// switch v := a.(type) { case *Dog: v.Name; case *Cat: v.Lives }
-		{"TypeSwitchMultiCase", 0, 0, ""},
-
-		// v, ok := a.(*Dog); if !ok { return }; v.Name
-		{"CommaOkEarlyReturn", 0, 0, ""},
-
-		// --- Unsafe: should warn ---
-
-		// v, _ := a.(*Dog); v.Name — ok not checked
-		{"CommaOkNoCheck", 1, analysis.Warning, "possible nil dereference"},
-
-		// default: a.Sound() — interface param, no type narrowing
-		{"TypeSwitchDefault", 1, analysis.Warning, "possible nil dereference"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.fnName, func(t *testing.T) {
-			t.Parallel()
-
-			var fn *ssa.Function
-			for _, member := range pkg.Members {
-				f, ok := member.(*ssa.Function)
-				if ok && f.Name() == tt.fnName {
-					fn = f
-					break
-				}
-			}
-			require.NotNil(t, fn, "function %s not found in testdata", tt.fnName)
-
-			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
-			findings := analyzer.Analyze(fn)
-
-			require.Len(t, findings, tt.wantLen,
-				"%s: expected %d findings, got %d", tt.fnName, tt.wantLen, len(findings))
-
-			if tt.wantLen > 0 {
-				require.Equal(t, tt.severity, findings[0].Severity,
-					"%s: wrong severity", tt.fnName)
-				require.Contains(t, findings[0].Message, tt.message,
-					"%s: wrong message", tt.fnName)
-			}
-		})
-	}
-}
-
-// ===========================================================================
 // Inline tests for patterns that don't need testdata fixtures
 // ===========================================================================
-
 func TestTypeSwitch_Inline(t *testing.T) {
 	t.Parallel()
 
@@ -229,6 +142,91 @@ func TestTypeSwitch_Inline(t *testing.T) {
 			if tt.wantLen > 0 {
 				require.Equal(t, tt.severity, findings[0].Severity)
 				require.Contains(t, findings[0].Message, tt.message)
+			}
+		})
+	}
+}
+
+// ===========================================================================
+// TypeAssert CommaOk refinement tests
+//
+// These tests verify that type switches and comma-ok type assertions
+// refine the extracted value to DefinitelyNotNil in the true branch.
+//
+// SSA lowering for both patterns:
+//
+//   Block 0:
+//     t0 = TypeAssert x.(*Foo) ,ok
+//     t1 = Extract t0 #0          (*Foo)
+//     t2 = Extract t0 #1          (ok bool)
+//     if t2 goto Block1 else Block2
+//   Block 1:                      (true branch — assertion succeeded)
+//     &t1.Field                   (safe — t1 is DefinitelyNotNil)
+//
+// All tests use testdata/typeswitch.go fixtures.
+// ===========================================================================
+func TestTypeSwitch_Testdata(t *testing.T) {
+	t.Parallel()
+
+	_, pkgs, err := loader.Load("../../pkg/testdata")
+	require.NoError(t, err)
+	require.NotEmpty(t, pkgs)
+	pkg := pkgs[0]
+
+	tests := []struct {
+		fnName   string
+		wantLen  int
+		severity analysis.Severity
+		message  string
+	}{
+		// --- Safe: type switch proves non-nil ---
+
+		// switch v := a.(type) { case *Dog: v.Name }
+		{"TypeSwitchDeref", 0, 0, ""},
+
+		// if v, ok := a.(*Dog); ok { v.Name }
+		{"CommaOkDeref", 0, 0, ""},
+
+		// switch v := a.(type) { case *Dog: v.Name; case *Cat: v.Lives }
+		{"TypeSwitchMultiCase", 0, 0, ""},
+
+		// v, ok := a.(*Dog); if !ok { return }; v.Name
+		{"CommaOkEarlyReturn", 0, 0, ""},
+
+		// --- Unsafe: should warn ---
+
+		// v, _ := a.(*Dog); v.Name — ok not checked
+		{"CommaOkNoCheck", 1, analysis.Warning, "possible nil dereference"},
+
+		// default: a.Sound() — interface param, no type narrowing
+		{"TypeSwitchDefault", 1, analysis.Warning, "possible nil dereference"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fnName, func(t *testing.T) {
+			t.Parallel()
+
+			var fn *ssa.Function
+			for _, member := range pkg.Members {
+				f, ok := member.(*ssa.Function)
+				if ok && f.Name() == tt.fnName {
+					fn = f
+					break
+				}
+			}
+			require.NotNil(t, fn, "function %s not found in testdata", tt.fnName)
+
+			analyzer := analysis.NewNilAnalyzer(nil, nil, nil)
+			findings := analyzer.Analyze(fn)
+
+			require.Len(t, findings, tt.wantLen,
+				"%s: expected %d findings, got %d", tt.fnName, tt.wantLen, len(findings))
+
+			if tt.wantLen > 0 {
+				require.Equal(t, tt.severity, findings[0].Severity,
+					"%s: wrong severity", tt.fnName)
+				require.Contains(t, findings[0].Message, tt.message,
+					"%s: wrong message", tt.fnName)
 			}
 		})
 	}

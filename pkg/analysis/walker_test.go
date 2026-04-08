@@ -82,6 +82,120 @@ func TestReversePostOrder(t *testing.T) {
 	}
 }
 
+func TestReversePostOrderAnalyzeWithUnreachable(t *testing.T) {
+	t.Parallel()
+
+	// End-to-end: ensure the analyzer doesn't crash on functions with unreachable blocks.
+	tests := map[string]struct {
+		src    string
+		fnName string
+	}{
+		"dead code after return": {
+			src: `
+				package example
+
+				func f(x int) int {
+					return x
+					y := 2
+					return y
+				}
+			`,
+			fnName: "f",
+		},
+		"switch all return": {
+			src: `
+				package example
+
+				func g(x int) int {
+					switch {
+					case x > 0:
+						return 1
+					case x < 0:
+						return -1
+					default:
+						return 0
+					}
+				}
+			`,
+			fnName: "g",
+		},
+		"early panic": {
+			src: `
+				package example
+
+				func h(x int) int {
+					if x == 0 {
+						panic("zero")
+					}
+					return 10 / x
+				}
+			`,
+			fnName: "h",
+		},
+		"multiple returns": {
+			src: `
+				package example
+
+				func m(x int8) int8 {
+					if x > 100 {
+						return x
+					}
+					if x < -100 {
+						return -x
+					}
+					return x + 1
+				}
+			`,
+			fnName: "m",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ssaPkg := buildSSA(t, tt.src)
+			fn := findFunctionInPkg(ssaPkg, tt.fnName)
+			require.NotNil(t, fn, "function %s not found", tt.fnName)
+
+			// Must not panic
+			analyzer := &analysis.Analyzer{}
+			_ = analyzer.Analyze(fn)
+		})
+	}
+}
+
+func TestReversePostOrderNoNilBlocks(t *testing.T) {
+	t.Parallel()
+
+	// Specifically tests that unreachable blocks don't produce nil entries.
+	// This was the bug that crashed goprove on google/uuid.
+	src := `
+		package example
+
+		func switchWithDefault(x int) int {
+			switch {
+			case x > 0:
+				return 1
+			case x < 0:
+				return -1
+			default:
+				return 0
+			}
+		}
+	`
+	ssaPkg := buildSSA(t, src)
+	fn := findFunctionInPkg(ssaPkg, "switchWithDefault")
+	require.NotNil(t, fn)
+
+	blocks, err := analysis.ReversePostOrder(fn)
+	require.NoError(t, err)
+
+	for i, b := range blocks {
+		require.NotNilf(t, b, "block at RPO index %d is nil (total blocks: %d, reachable: %d)",
+			i, len(fn.Blocks), len(blocks))
+	}
+}
+
 func TestReversePostOrderUnreachableBlocks(t *testing.T) {
 	t.Parallel()
 
@@ -170,162 +284,6 @@ func TestReversePostOrderUnreachableBlocks(t *testing.T) {
 	}
 }
 
-func TestReversePostOrderNoNilBlocks(t *testing.T) {
-	t.Parallel()
-
-	// Specifically tests that unreachable blocks don't produce nil entries.
-	// This was the bug that crashed goprove on google/uuid.
-	src := `
-		package example
-
-		func switchWithDefault(x int) int {
-			switch {
-			case x > 0:
-				return 1
-			case x < 0:
-				return -1
-			default:
-				return 0
-			}
-		}
-	`
-	ssaPkg := buildSSA(t, src)
-	fn := findFunctionInPkg(ssaPkg, "switchWithDefault")
-	require.NotNil(t, fn)
-
-	blocks, err := analysis.ReversePostOrder(fn)
-	require.NoError(t, err)
-
-	for i, b := range blocks {
-		require.NotNilf(t, b, "block at RPO index %d is nil (total blocks: %d, reachable: %d)",
-			i, len(fn.Blocks), len(blocks))
-	}
-}
-
-func TestReversePostOrderAnalyzeWithUnreachable(t *testing.T) {
-	t.Parallel()
-
-	// End-to-end: ensure the analyzer doesn't crash on functions with unreachable blocks.
-	tests := map[string]struct {
-		src    string
-		fnName string
-	}{
-		"dead code after return": {
-			src: `
-				package example
-
-				func f(x int) int {
-					return x
-					y := 2
-					return y
-				}
-			`,
-			fnName: "f",
-		},
-		"switch all return": {
-			src: `
-				package example
-
-				func g(x int) int {
-					switch {
-					case x > 0:
-						return 1
-					case x < 0:
-						return -1
-					default:
-						return 0
-					}
-				}
-			`,
-			fnName: "g",
-		},
-		"early panic": {
-			src: `
-				package example
-
-				func h(x int) int {
-					if x == 0 {
-						panic("zero")
-					}
-					return 10 / x
-				}
-			`,
-			fnName: "h",
-		},
-		"multiple returns": {
-			src: `
-				package example
-
-				func m(x int8) int8 {
-					if x > 100 {
-						return x
-					}
-					if x < -100 {
-						return -x
-					}
-					return x + 1
-				}
-			`,
-			fnName: "m",
-		},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			ssaPkg := buildSSA(t, tt.src)
-			fn := findFunctionInPkg(ssaPkg, tt.fnName)
-			require.NotNil(t, fn, "function %s not found", tt.fnName)
-
-			// Must not panic
-			analyzer := &analysis.Analyzer{}
-			_ = analyzer.Analyze(fn)
-		})
-	}
-}
-
-func findFunctionInPkg(pkg *ssa.Package, name string) *ssa.Function {
-	for _, member := range pkg.Members {
-		fn, ok := member.(*ssa.Function)
-		if ok && fn.Name() == name {
-			return fn
-		}
-	}
-	return nil
-}
-
-func assertBlocks(t *testing.T, fnBlocks []*ssa.BasicBlock, actual []*ssa.BasicBlock) {
-	// All blocks present
-	require.Equal(t, len(fnBlocks), len(actual))
-
-	// Entry block is first
-	require.Equal(t, fnBlocks[0], actual[0])
-
-	// No duplicates
-	seen := make(map[int]bool)
-	for _, b := range actual {
-		require.False(t, seen[b.Index], "duplicate block %d", b.Index)
-		seen[b.Index] = true
-	}
-
-	// Predecessor ordering: every block appears after all its
-	// non-back-edge predecessors (pred with a lower RPO position)
-	pos := make(map[int]int) // block index → position in RPO
-	for i, b := range actual {
-		pos[b.Index] = i
-	}
-	for i, b := range actual {
-		for _, pred := range b.Preds {
-			// If pred comes after b in RPO, it's a back-edge — skip
-			if pos[pred.Index] > i {
-				continue
-			}
-			require.Less(t, pos[pred.Index], i,
-				"block %d should come after predecessor %d", b.Index, pred.Index)
-		}
-	}
-}
-
 func buildSSA(t *testing.T, src string) *ssa.Package {
 	_, ssaPkg := buildSSAWithProgram(t, src)
 	return ssaPkg
@@ -368,4 +326,46 @@ func buildSSAWithProgram(t *testing.T, src string) (*ssa.Program, *ssa.Package) 
 	prog.Build()
 
 	return prog, ssaPkg
+}
+
+func assertBlocks(t *testing.T, fnBlocks []*ssa.BasicBlock, actual []*ssa.BasicBlock) {
+	// All blocks present
+	require.Equal(t, len(fnBlocks), len(actual))
+
+	// Entry block is first
+	require.Equal(t, fnBlocks[0], actual[0])
+
+	// No duplicates
+	seen := make(map[int]bool)
+	for _, b := range actual {
+		require.False(t, seen[b.Index], "duplicate block %d", b.Index)
+		seen[b.Index] = true
+	}
+
+	// Predecessor ordering: every block appears after all its
+	// non-back-edge predecessors (pred with a lower RPO position)
+	pos := make(map[int]int) // block index → position in RPO
+	for i, b := range actual {
+		pos[b.Index] = i
+	}
+	for i, b := range actual {
+		for _, pred := range b.Preds {
+			// If pred comes after b in RPO, it's a back-edge — skip
+			if pos[pred.Index] > i {
+				continue
+			}
+			require.Less(t, pos[pred.Index], i,
+				"block %d should come after predecessor %d", b.Index, pred.Index)
+		}
+	}
+}
+
+func findFunctionInPkg(pkg *ssa.Package, name string) *ssa.Function {
+	for _, member := range pkg.Members {
+		fn, ok := member.(*ssa.Function)
+		if ok && fn.Name() == name {
+			return fn
+		}
+	}
+	return nil
 }

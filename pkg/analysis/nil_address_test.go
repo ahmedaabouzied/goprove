@@ -9,21 +9,6 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// ===========================================================================
-// nil_address.go unit tests
-// ===========================================================================
-
-func TestResolveAddress_Global(t *testing.T) {
-	t.Parallel()
-
-	g := &ssa.Global{}
-	key, ok := resolveAddress(g)
-	require.True(t, ok)
-	require.Equal(t, addrGlobal, key.kind)
-	require.Equal(t, ssa.Value(g), key.base)
-	require.Equal(t, "", key.path)
-}
-
 func TestResolveAddress_FieldAddr(t *testing.T) {
 	t.Parallel()
 
@@ -36,6 +21,20 @@ func TestResolveAddress_FieldAddr(t *testing.T) {
 	require.Equal(t, addrField, key.kind)
 	require.Equal(t, ssa.Value(param), key.base)
 	require.Equal(t, "3", key.path)
+}
+
+// ===========================================================================
+// nil_address.go unit tests
+// ===========================================================================
+func TestResolveAddress_Global(t *testing.T) {
+	t.Parallel()
+
+	g := &ssa.Global{}
+	key, ok := resolveAddress(g)
+	require.True(t, ok)
+	require.Equal(t, addrGlobal, key.kind)
+	require.Equal(t, ssa.Value(g), key.base)
+	require.Equal(t, "", key.path)
 }
 
 func TestResolveAddress_IndexAddr(t *testing.T) {
@@ -52,13 +51,38 @@ func TestResolveAddress_IndexAddr(t *testing.T) {
 	require.Equal(t, "", key.path)
 }
 
-func TestResolveAddress_Unsupported(t *testing.T) {
+func TestResolveAddress_TwoFieldAddrs_DifferentBase_NoMatch(t *testing.T) {
 	t.Parallel()
 
-	// Parameter is not a trackable address.
+	// Use two different Const values with different types as bases.
+	base1 := ssa.NewConst(nil, types.NewPointer(types.Typ[types.Int]))
+	base2 := ssa.NewConst(nil, types.NewPointer(types.Typ[types.String]))
+
+	fa1 := &ssa.FieldAddr{Field: 0}
+	fa1.X = base1
+	fa2 := &ssa.FieldAddr{Field: 0}
+	fa2.X = base2
+
+	key1, _ := resolveAddress(fa1)
+	key2, _ := resolveAddress(fa2)
+	require.NotEqual(t, key1, key2,
+		"different base → different addressKey")
+}
+
+func TestResolveAddress_TwoFieldAddrs_DifferentField_NoMatch(t *testing.T) {
+	t.Parallel()
+
 	param := ssa.NewConst(nil, types.NewPointer(types.Typ[types.Int]))
-	_, ok := resolveAddress(param)
-	require.False(t, ok, "Const should not be a resolvable address")
+
+	fa1 := &ssa.FieldAddr{Field: 0}
+	fa1.X = param
+	fa2 := &ssa.FieldAddr{Field: 1}
+	fa2.X = param
+
+	key1, _ := resolveAddress(fa1)
+	key2, _ := resolveAddress(fa2)
+	require.NotEqual(t, key1, key2,
+		"different field index → different addressKey")
 }
 
 func TestResolveAddress_TwoFieldAddrs_SameBaseField_Match(t *testing.T) {
@@ -81,38 +105,13 @@ func TestResolveAddress_TwoFieldAddrs_SameBaseField_Match(t *testing.T) {
 		"same base + same field index → equal addressKey")
 }
 
-func TestResolveAddress_TwoFieldAddrs_DifferentField_NoMatch(t *testing.T) {
+func TestResolveAddress_Unsupported(t *testing.T) {
 	t.Parallel()
 
+	// Parameter is not a trackable address.
 	param := ssa.NewConst(nil, types.NewPointer(types.Typ[types.Int]))
-
-	fa1 := &ssa.FieldAddr{Field: 0}
-	fa1.X = param
-	fa2 := &ssa.FieldAddr{Field: 1}
-	fa2.X = param
-
-	key1, _ := resolveAddress(fa1)
-	key2, _ := resolveAddress(fa2)
-	require.NotEqual(t, key1, key2,
-		"different field index → different addressKey")
-}
-
-func TestResolveAddress_TwoFieldAddrs_DifferentBase_NoMatch(t *testing.T) {
-	t.Parallel()
-
-	// Use two different Const values with different types as bases.
-	base1 := ssa.NewConst(nil, types.NewPointer(types.Typ[types.Int]))
-	base2 := ssa.NewConst(nil, types.NewPointer(types.Typ[types.String]))
-
-	fa1 := &ssa.FieldAddr{Field: 0}
-	fa1.X = base1
-	fa2 := &ssa.FieldAddr{Field: 0}
-	fa2.X = base2
-
-	key1, _ := resolveAddress(fa1)
-	key2, _ := resolveAddress(fa2)
-	require.NotEqual(t, key1, key2,
-		"different base → different addressKey")
+	_, ok := resolveAddress(param)
+	require.False(t, ok, "Const should not be a resolvable address")
 }
 
 func TestResolveLoadAddress_MUL(t *testing.T) {
