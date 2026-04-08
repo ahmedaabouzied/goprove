@@ -551,6 +551,9 @@ func (a *NilAnalyzer) refineFromPredecessor(block *ssa.BasicBlock) {
 		// Nil check refinement
 		if binOp, ok := ifInstr.Cond.(*ssa.BinOp); ok {
 			a.refineFromCondition(block, binOp, isTrueBranch)
+			// len(v) > 0 in the true branch of (i < len(v)) implies v != nil.
+			// Handles regular for-loops: for i := 0; i < len(s)/2; i++ { ... s[i] ... }
+			a.refineLenGuard(block, binOp, isTrueBranch)
 		}
 
 		// TypeAssert ok refinement
@@ -567,6 +570,43 @@ func (a *NilAnalyzer) refineFromPredecessor(block *ssa.BasicBlock) {
 					}
 				}
 			}
+		}
+	}
+}
+
+// refineLenGuard refines the nil state of a slice when the branch condition
+// is "i < len(v)" or "i < len(v)/k" (true branch). In that case len(v) > 0,
+// which implies v != nil. This suppresses false positives for manual reversal
+// loops such as: for i := 0; i < len(s)/2; i++ { s[i], s[j] = s[j], s[i] }
+func (a *NilAnalyzer) refineLenGuard(block *ssa.BasicBlock, cond *ssa.BinOp, isTrueBranch bool) {
+	if !isTrueBranch || cond.Op != token.LSS {
+		return
+	}
+	lenCall := extractLenCall(cond.Y)
+	if lenCall == nil {
+		return
+	}
+	builtin, ok := lenCall.Call.Value.(*ssa.Builtin)
+	if !ok || builtin.Name() != "len" {
+		return
+	}
+	if len(lenCall.Call.Args) != 1 {
+		return
+	}
+	v := lenCall.Call.Args[0]
+	if !isNillable(v) {
+		return
+	}
+	// Mark the slice value as non-nil.
+	a.state[block][v] = DefinitelyNotNil
+	// Also store by address key so that subsequent loads of the same address
+	// (which are different SSA values) pick up the refinement.
+	if unOp, ok := v.(*ssa.UnOp); ok && unOp.Op == token.MUL {
+		if key, ok := resolveAddress(unOp.X); ok {
+			if a.addrState[block] == nil {
+				a.addrState[block] = make(map[addressKey]NilState)
+			}
+			a.addrState[block][key] = DefinitelyNotNil
 		}
 	}
 }
@@ -894,14 +934,14 @@ func isRangeGuardedIndexAddr(block *ssa.BasicBlock, v *ssa.IndexAddr) bool {
 	if !ok {
 		return false
 	}
-	// Condition must be index < len(slice)
+	// Condition must be index < <bound>
 	binOp, ok := ifInstr.Cond.(*ssa.BinOp)
 	if !ok || binOp.Op != token.LSS {
 		return false
 	}
-	// RHS must be len(same slice)
-	lenCall, ok := binOp.Y.(*ssa.Call)
-	if !ok {
+	// RHS is either len(slice) directly, or len(slice)/k (e.g. reversal loops: i < len(s)/2)
+	lenCall := extractLenCall(binOp.Y)
+	if lenCall == nil {
 		return false
 	}
 	builtin, ok := lenCall.Call.Value.(*ssa.Builtin)
@@ -913,6 +953,21 @@ func isRangeGuardedIndexAddr(block *ssa.BasicBlock, v *ssa.IndexAddr) bool {
 		return false
 	}
 	return true
+}
+
+// extractLenCall returns the *ssa.Call for a len() expression that appears
+// either directly as v, or as the LHS of a BinOp (e.g. len(s)/2).
+func extractLenCall(v ssa.Value) *ssa.Call {
+	if call, ok := v.(*ssa.Call); ok {
+		return call
+	}
+	// Handle len(s)/k — the len call is the LHS of a QUO BinOp.
+	if div, ok := v.(*ssa.BinOp); ok && div.Op == token.QUO {
+		if call, ok := div.X.(*ssa.Call); ok {
+			return call
+		}
+	}
+	return nil
 }
 
 func isSliceType(v ssa.Value) bool {

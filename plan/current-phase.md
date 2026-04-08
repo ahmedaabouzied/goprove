@@ -118,14 +118,16 @@ Modules that increased (gin, backoff, uuid, go-cache, logrus) are not regression
 - [x] 5 integration tests: defensive check on param, return-self pattern, multi-pred merge, single-pred early return, single-pred guarded deref
 
 #### P2-B: Array IndexAddr distinction
-- [ ] In `checkInstruction` IndexAddr else branch: check if `v.X.Type().Underlying()` is `*types.Array` or `*types.Pointer` to `*types.Array`
-- [ ] If array type: skip nil check entirely (value type, cannot be nil)
-- [ ] Test: `var buf [256]byte; _ = buf[0]` — no warning
+- **CLOSED — not needed.** `var buf [256]byte` → SSA `Alloc` → `DefinitelyNotNil` → no warning. Struct field arrays go through `FieldAddr` → `DefinitelyNotNil` → no warning. The only array-pointer case that warns is `func f(p *[256]byte)` where p genuinely can be nil — correct behavior, not a FP.
 
 ### P3 — Low (eliminates ~4% of FPs)
 
-- [ ] Type switch refinement: track narrowed type inside case branches
+- [x] Type switch refinement: track narrowed type inside case branches — DONE (nil_analyzer.go:486-500, `b52d86a`)
 - [ ] Interface dispatch precision improvements
+
+### Store/Load tracking (previously listed as "hard, defer")
+
+- [x] DONE — `transferStoreOp` writes to `addrState`, `transferUnOpInstr` reads it back, `resolveAddress` handles `*ssa.Alloc` (nil_analyzer.go:876-883, 689-720; nil_address.go:40-73)
 
 ### P4 — Enhancements (discovered during P1 work)
 
