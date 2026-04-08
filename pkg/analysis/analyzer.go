@@ -26,6 +26,7 @@ func NewAnalyzer(resolver *CHAResolver) *Analyzer {
 type Analyzer struct {
 	state          map[*ssa.BasicBlock]map[ssa.Value]Interval
 	summaries      map[*ssa.Function][]FunctionSummary
+	sliceLens      map[*ssa.BasicBlock]map[ssa.Value]Interval
 	paramOverrides []Interval // If set, use these instead of type bounds.
 
 	callDepth    int
@@ -39,6 +40,7 @@ type Analyzer struct {
 
 func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 	a.state = make(map[*ssa.BasicBlock]map[ssa.Value]Interval)
+	a.sliceLens = make(map[*ssa.BasicBlock]map[ssa.Value]Interval)
 	if a.summaries == nil {
 		a.summaries = make(map[*ssa.Function][]FunctionSummary)
 	}
@@ -69,7 +71,8 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 		workQueue = workQueue[1:]
 		// Copy blocks current state before initializing it.
 		oldState := a.copyBlockState(block)
-		a.initBlockState(rpoIndex, block, oldState, fn)
+		oldSliceLen := a.copyBlockSliceLen(block)
+		a.initBlockState(rpoIndex, block, oldState, oldSliceLen, fn)
 		a.refineFromPredecessor(block)
 		for _, instr := range block.Instrs {
 			a.transferInstruction(block, instr)
@@ -78,7 +81,7 @@ func (a *Analyzer) Analyze(fn *ssa.Function) []Finding {
 		// Compare old state with the current state.
 		// If they're not the same, loop has not ended.
 		// we need to loop again.
-		if !stateEqual(oldState, a.state[block]) {
+		if !stateEqual(oldState, a.state[block]) || !stateEqual(oldSliceLen, a.sliceLens[block]) {
 			for _, succ := range block.Succs {
 				workQueue = append(workQueue, succ)
 			}
@@ -217,6 +220,14 @@ func (a *Analyzer) copyBlockState(block *ssa.BasicBlock) map[ssa.Value]Interval 
 	return cpy
 }
 
+func (a *Analyzer) copyBlockSliceLen(block *ssa.BasicBlock) map[ssa.Value]Interval {
+	cpy := make(map[ssa.Value]Interval)
+	if currSliceLens, ok := a.sliceLens[block]; ok {
+		maps.Copy(cpy, currSliceLens)
+	}
+	return cpy
+}
+
 func (a *Analyzer) flagDivisionByZero(v *ssa.BinOp, divisor Interval) {
 	if !divisor.ContainsZero() {
 		return
@@ -259,9 +270,11 @@ func (a *Analyzer) flagOverflow(block *ssa.BasicBlock, v *ssa.BinOp) {
 	a.checkOverflow(bound, currentInterval, v, "")
 }
 
-func (a *Analyzer) initBlockState(rpoIndex map[*ssa.BasicBlock]int, block *ssa.BasicBlock, oldState map[ssa.Value]Interval, fn *ssa.Function) {
+func (a *Analyzer) initBlockState(rpoIndex map[*ssa.BasicBlock]int, block *ssa.BasicBlock, oldState map[ssa.Value]Interval, oldSliceLen map[ssa.Value]Interval, fn *ssa.Function) {
 	// Initialize the initial state
 	a.state[block] = make(map[ssa.Value]Interval)
+	a.sliceLens[block] = make(map[ssa.Value]Interval)
+
 	if len(block.Preds) == 0 {
 		// Entry block. Initialize params with top
 		for i, param := range fn.Params {
@@ -275,6 +288,9 @@ func (a *Analyzer) initBlockState(rpoIndex map[*ssa.BasicBlock]int, block *ssa.B
 					if !ok {
 						a.state[block][param] = Top()
 					}
+				} else if _, ok := param.Type().Underlying().(*types.Slice); ok {
+					// A slice. Init the value of len in the sliceLens state
+					a.sliceLens[block][param] = NewInterval(0, math.MaxInt64)
 				} else {
 					// Fallback to Top in case we couldn't get the basic type.
 					a.state[block][param] = Top()
@@ -285,11 +301,21 @@ func (a *Analyzer) initBlockState(rpoIndex map[*ssa.BasicBlock]int, block *ssa.B
 
 	for _, pred := range block.Preds {
 		predState := a.state[pred]
+		predSliceLens := a.sliceLens[pred]
+
 		for v, interval := range predState {
 			if existing, ok := a.state[block][v]; ok {
 				a.state[block][v] = existing.Join(interval)
 			} else {
 				a.state[block][v] = interval
+			}
+		}
+
+		for v, interval := range predSliceLens {
+			if existing, ok := a.sliceLens[block][v]; ok {
+				a.sliceLens[block][v] = existing.Join(interval)
+			} else {
+				a.sliceLens[block][v] = interval
 			}
 		}
 	}
@@ -299,6 +325,12 @@ func (a *Analyzer) initBlockState(rpoIndex map[*ssa.BasicBlock]int, block *ssa.B
 		for v, newVal := range a.state[block] {
 			if oldVal, ok := oldState[v]; ok {
 				a.state[block][v] = oldVal.Widen(newVal)
+			}
+		}
+
+		for v, newVal := range a.sliceLens[block] {
+			if oldVal, ok := oldSliceLen[v]; ok {
+				a.sliceLens[block][v] = oldVal.Widen(newVal)
 			}
 		}
 	}
