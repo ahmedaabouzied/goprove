@@ -40,6 +40,13 @@ func (i Interval) Add(other Interval) Interval {
 	lo := i.Lo + other.Lo
 	hi := i.Hi + other.Hi
 
+	if i.Hi > 0 && other.Hi > 0 && i.Hi > math.MaxInt64-other.Hi {
+		hi = math.MaxInt64
+	}
+	if i.Lo < 0 && other.Lo < 0 && i.Lo < math.MinInt64-other.Lo {
+		lo = math.MinInt64
+	}
+
 	return NewInterval(lo, hi)
 }
 
