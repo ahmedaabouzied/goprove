@@ -37,7 +37,7 @@ func TestAdd(t *testing.T) {
 	}
 }
 
-func TestAdd_Overflow(t *testing.T) {
+func TestAdd_OverflowClamp(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -45,14 +45,20 @@ func TestAdd_Overflow(t *testing.T) {
 		b    Interval
 		want Interval
 	}{
-		// int64 overflow: MaxInt64 + MaxInt64 wraps to negative
-		{"max plus max wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(-2, -2)},
-		// int64 underflow: MinInt64 + MinInt64 wraps to 0
-		{"min plus min wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(math.MinInt64, math.MinInt64), NewInterval(0, 0)},
-		// MaxInt64 + 1 overflows
-		{"max plus one wraps", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(1, 1), NewInterval(math.MinInt64, math.MinInt64)},
-		// MinInt64 + (-1) underflows
-		{"min plus neg one wraps", NewInterval(math.MinInt64, math.MinInt64), NewInterval(-1, -1), NewInterval(math.MaxInt64, math.MaxInt64)},
+		// Hi overflow clamps to MaxInt64
+		{"max plus max clamps hi", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(-2, math.MaxInt64)},
+		// Lo underflow clamps to MinInt64
+		{"min plus min clamps lo", NewInterval(math.MinInt64, math.MinInt64), NewInterval(math.MinInt64, math.MinInt64), NewInterval(math.MinInt64, 0)},
+		// MaxInt64 + 1: hi clamps, lo wraps (both positive so lo overflows too)
+		{"max plus one clamps hi", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(1, 1), NewInterval(math.MinInt64, math.MaxInt64)},
+		// MinInt64 + (-1): lo clamps, hi wraps (both negative so hi underflows too)
+		{"min plus neg one clamps lo", NewInterval(math.MinInt64, math.MinInt64), NewInterval(-1, -1), NewInterval(math.MinInt64, math.MaxInt64)},
+		// Non-extreme interval: [0, MaxInt64] + [1, 1] clamps hi only
+		{"non-negative plus one clamps hi", NewInterval(0, math.MaxInt64), NewInterval(1, 1), NewInterval(1, math.MaxInt64)},
+		// Non-extreme underflow: [MinInt64, 0] + [-1, -1] clamps lo only
+		{"non-positive plus neg one clamps lo", NewInterval(math.MinInt64, 0), NewInterval(-1, -1), NewInterval(math.MinInt64, -1)},
+		// No overflow — unchanged
+		{"no overflow", NewInterval(0, 100), NewInterval(1, 1), NewInterval(1, 101)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
