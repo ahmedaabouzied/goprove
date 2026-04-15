@@ -45,7 +45,7 @@ func main() {
 
 	var progress *Progress
 	if *interactive {
-		progress = NewProgress()
+		progress = NewProgress(*noColorFlag)
 	}
 
 	// Check for updates
@@ -54,7 +54,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Run 'goprove upgrade' to update.")
 	}
 
-	p, err := NewProver(targetPackage, progress)
+	p, err := NewProver(targetPackage, progress, *noColorFlag)
 	if err != nil {
 		printErrAndOsExit(err.Error())
 	}
@@ -68,6 +68,7 @@ func main() {
 }
 
 var interactive = flag.Bool("i", false, "show progress during analysis")
+var noColorFlag = flag.Bool("no-color", false, "disable colored and ANSI output")
 
 func printErrAndOsExit(msg string) {
 	if len(msg) > consts.OneKB { // Checking input bounds for safety.
@@ -90,8 +91,9 @@ func printHelp() {
 	fmt.Fprintln(w, "\t \t                 -o <path> : Output path (default: ~/.cache/goprove/summaries-<versions>.json)")
 	fmt.Fprintln(w, "\t Example: goprove fmt")
 	fmt.Fprintln(w, "\t Flags:")
-	fmt.Fprintln(w, "\t \t -i : Show progress during analysis.")
-	fmt.Fprintln(w, "\t \t -h : Prints help message.")
+	fmt.Fprintln(w, "\t \t -i        : Show progress during analysis.")
+	fmt.Fprintln(w, "\t \t -no-color : Disable colored and ANSI output.")
+	fmt.Fprintln(w, "\t \t -h        : Prints help message.")
 	fmt.Fprintf(w, "Version: %s \n", version.Info())
 	if err := w.Flush(); err != nil {
 		printErrAndOsExit(err.Error())

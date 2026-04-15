@@ -195,7 +195,7 @@ func TestAnalyzePkg_CollectsAllFindings(t *testing.T) {
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
 	for _, finding := range findings {
-		_ = printFinding("/tmp", w, p.prog.Fset, finding)
+		_ = printFinding("/tmp", w, p.prog.Fset, finding, false)
 	}
 	w.Flush()
 
@@ -377,7 +377,7 @@ func TestNewProver_DirWithOnlyGoMod_ReturnsError(t *testing.T) {
 	if err := os.WriteFile(dir+"/go.mod", []byte(gomod), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewProver(dir, nil)
+	_, err := NewProver(dir, nil, false)
 	if err == nil {
 		t.Fatal("expected error for dir with no Go files, got nil")
 	}
@@ -389,7 +389,7 @@ func TestNewProver_DirWithOnlyGoMod_ReturnsError(t *testing.T) {
 func TestNewProver_EmptyDir_ReturnsError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	_, err := NewProver(dir, nil)
+	_, err := NewProver(dir, nil, false)
 	if err == nil {
 		t.Fatal("expected error for empty directory, got nil")
 	}
@@ -434,7 +434,7 @@ func TestPrintFinding_Bug(t *testing.T) {
 
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
-	err := printFinding("/work/project", w, fset, finding)
+	err := printFinding("/work/project", w, fset, finding, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestPrintFinding_LongMessage(t *testing.T) {
 
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
-	err := printFinding("/work/src", w, fset, finding)
+	err := printFinding("/work/src", w, fset, finding, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -503,7 +503,7 @@ func TestPrintFinding_MultipleFindings_EachOnOwnLine(t *testing.T) {
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
 	for _, finding := range findings {
-		_ = printFinding("/work/src", w, fset, finding)
+		_ = printFinding("/work/src", w, fset, finding, false)
 	}
 	w.Flush()
 
@@ -529,7 +529,7 @@ func TestPrintFinding_RelativePath(t *testing.T) {
 
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
-	err := printFinding("/home/user/code/myproject", w, fset, finding)
+	err := printFinding("/home/user/code/myproject", w, fset, finding, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -564,7 +564,7 @@ func TestPrintFinding_RelError(t *testing.T) {
 	w := bufio.NewWriter(&buf)
 	// Position with NoPos has empty filename — Rel("", "/abs/path") shouldn't
 	// error, but the output should still not panic.
-	_ = printFinding("/some/absolute/path", w, fset, finding)
+	_ = printFinding("/some/absolute/path", w, fset, finding, false)
 	w.Flush()
 }
 
@@ -582,7 +582,7 @@ func TestPrintFinding_SafeSeverity_PrintsNothing(t *testing.T) {
 
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
-	_ = printFinding("/work/project", w, fset, finding)
+	_ = printFinding("/work/project", w, fset, finding, false)
 	w.Flush()
 
 	if buf.Len() != 0 {
@@ -604,7 +604,7 @@ func TestPrintFinding_UnknownSeverity_PrintsNothing(t *testing.T) {
 
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
-	_ = printFinding("/work/src", w, fset, finding)
+	_ = printFinding("/work/src", w, fset, finding, false)
 	w.Flush()
 
 	if buf.Len() != 0 {
@@ -626,7 +626,7 @@ func TestPrintFinding_Warning(t *testing.T) {
 
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
-	err := printFinding("/work/project", w, fset, finding)
+	err := printFinding("/work/project", w, fset, finding, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -686,7 +686,7 @@ func TestProve_MultiplePackages(t *testing.T) {
 
 func TestProve_NonexistentPath(t *testing.T) {
 	t.Parallel()
-	_, err := NewProver("./nonexistent/path/that/does/not/exist", nil)
+	_, err := NewProver("./nonexistent/path/that/does/not/exist", nil, false)
 	if err == nil {
 		t.Error("expected error for nonexistent path, got nil")
 	}
@@ -734,7 +734,7 @@ func findFunction(pkg *ssa.Package, name string) *ssa.Function {
 // ---------------------------------------------------------------------------
 func newTestProver(t *testing.T, path string) *Prover {
 	t.Helper()
-	p, err := NewProver(path, nil)
+	p, err := NewProver(path, nil, false)
 	if err != nil {
 		t.Fatalf("NewProver(%s): %v", path, err)
 	}
