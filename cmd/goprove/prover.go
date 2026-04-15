@@ -14,7 +14,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func NewProver(path string, progress *Progress) (*Prover, error) {
+func NewProver(path string, progress *Progress, noColor bool) (*Prover, error) {
 	done := progress.Phase("Loading packages")
 	prog, pkgs, err := loader.Load(path)
 	if err != nil {
@@ -53,7 +53,7 @@ func NewProver(path string, progress *Progress) (*Prover, error) {
 	nilAnalyzer.SetParamNilStates(paramStates)
 	done()
 
-	return &Prover{path, analyzer, nilAnalyzer, prog, pkgs, progress}, nil
+	return &Prover{path, analyzer, nilAnalyzer, prog, pkgs, progress, noColor}, nil
 }
 
 type Prover struct {
@@ -63,6 +63,7 @@ type Prover struct {
 	prog             *ssa.Program
 	pkgs             []*ssa.Package
 	progress         *Progress
+	noColor          bool
 }
 
 // Prove is the main entry point for our prover.
@@ -111,7 +112,7 @@ func (p *Prover) Prove() (int, error) {
 	w := bufio.NewWriter(os.Stdout)
 	fset := p.prog.Fset
 	for _, finding := range allFindings {
-		output := formatFinding(wd, fset, finding)
+		output := formatFinding(wd, fset, finding, p.noColor)
 		if output == "" {
 			continue
 		}
@@ -154,7 +155,7 @@ func (p *Prover) analyzePkg(pkg *ssa.Package) []analysis.Finding {
 	return findings
 }
 
-func formatFinding(wd string, fset *token.FileSet, finding analysis.Finding) string {
+func formatFinding(wd string, fset *token.FileSet, finding analysis.Finding, noColor bool) string {
 	pos := fset.Position(finding.Pos)
 	fileName, err := filepath.Rel(wd, pos.Filename)
 	if err != nil {
@@ -163,15 +164,21 @@ func formatFinding(wd string, fset *token.FileSet, finding analysis.Finding) str
 	pos.Filename = fileName
 	switch finding.Severity {
 	case analysis.Bug:
+		if noColor {
+			return fmt.Sprintf(" Error: %s %s \n", pos, finding.Message)
+		}
 		return fmt.Sprintf("\033[31m Error: %s %s \033[0m\n", pos, finding.Message)
 	case analysis.Warning:
+		if noColor {
+			return fmt.Sprintf(" Warning: %s %s \n", pos, finding.Message)
+		}
 		return fmt.Sprintf("\033[33m Warning: %s %s \033[0m\n", pos, finding.Message)
 	default:
 		return ""
 	}
 }
 
-func printFinding(wd string, w *bufio.Writer, fset *token.FileSet, finding analysis.Finding) error {
-	_, err := fmt.Fprint(w, formatFinding(wd, fset, finding))
+func printFinding(wd string, w *bufio.Writer, fset *token.FileSet, finding analysis.Finding, noColor bool) error {
+	_, err := fmt.Fprint(w, formatFinding(wd, fset, finding, noColor))
 	return err
 }

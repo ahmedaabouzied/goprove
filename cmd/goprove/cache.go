@@ -26,7 +26,7 @@ func runCacheStdlib(args []string) {
 		outPath = p
 	}
 
-	progress := NewProgress()
+	progress := NewProgress(*noColorFlag)
 
 	fmt.Fprintf(os.Stderr, "Generating stdlib cache (Go %s, goprove %s)...\n",
 		runtime.Version(), version.Version)
