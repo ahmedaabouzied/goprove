@@ -37,15 +37,8 @@ func (i Interval) Add(other Interval) Interval {
 		return res
 	}
 
-	lo := i.Lo + other.Lo
-	hi := i.Hi + other.Hi
-
-	if i.Hi > 0 && other.Hi > 0 && i.Hi > math.MaxInt64-other.Hi {
-		hi = math.MaxInt64
-	}
-	if i.Lo < 0 && other.Lo < 0 && i.Lo < math.MinInt64-other.Lo {
-		lo = math.MinInt64
-	}
+	lo := addSat(i.Lo, other.Lo)
+	hi := addSat(i.Hi, other.Hi)
 
 	return NewInterval(lo, hi)
 }
@@ -189,7 +182,7 @@ func (i Interval) Neg() Interval {
 		return Top()
 	}
 
-	return NewInterval(-i.Hi, -i.Lo)
+	return NewInterval(negSat(i.Hi), negSat(i.Lo))
 }
 
 func (i Interval) Rem(other Interval) Interval {
@@ -212,8 +205,8 @@ func (i Interval) Sub(other Interval) Interval {
 	if res, ok := checkSpecial(i, other); ok {
 		return res
 	}
-	lo := i.Lo - other.Hi
-	hi := i.Hi - other.Lo
+	lo := subSat(i.Lo, other.Hi)
+	hi := subSat(i.Hi, other.Lo)
 
 	return NewInterval(lo, hi)
 }
@@ -273,4 +266,33 @@ func least(x, y int64) int64 {
 		return x
 	}
 	return y
+}
+
+func addSat(x, y int64) int64 {
+	if x > 0 && y > 0 && x > math.MaxInt64-y {
+		return math.MaxInt64
+	}
+
+	if x < 0 && y < 0 && x < math.MinInt64-y {
+		return math.MinInt64
+	}
+
+	return x + y
+}
+
+func subSat(x, y int64) int64 {
+	if y < 0 && x > math.MaxInt64+y {
+		return math.MaxInt64
+	}
+	if y > 0 && x < math.MinInt64+y {
+		return math.MinInt64
+	}
+	return x - y
+}
+
+func negSat(x int64) int64 {
+	if x == math.MinInt64 {
+		return math.MaxInt64
+	}
+	return -x
 }
