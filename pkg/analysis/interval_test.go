@@ -747,6 +747,8 @@ func TestRem(t *testing.T) {
 
 		// Edge: divisor is [1,1] → result is always [0,0]
 		{"mod by exactly 1", NewInterval(-100, 100), NewInterval(1, 1), NewInterval(0, 0)},
+
+		{"maxInt lhs and minInt rhs", NewInterval(math.MaxInt64, math.MaxInt64), NewInterval(math.MinInt64, math.MinInt64), NewInterval(math.MaxInt64, math.MaxInt64)},
 	}
 
 	for _, tt := range tests {
